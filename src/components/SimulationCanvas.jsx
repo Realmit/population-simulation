@@ -88,7 +88,6 @@ export default function SimulationCanvas({ initialPopulation }) {
     setRestartToken(t => t + 1);
     handleResetCamera();
   };
-
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
@@ -96,6 +95,91 @@ export default function SimulationCanvas({ initialPopulation }) {
     humansRef.current = Array.from({ length: simPopulation }, (_, i) => new Human(i, FIELD_SIZE));
     basesRef.current = [];
     nextIdRef.current = simPopulation;
+    const pointInEllipse = (px, py, cx, cy, a, b, angle) => {
+      const dx = px - cx;
+      const dy = py - cy;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const r1 = (dx * cos + dy * sin) / a;
+      const r2 = (-dx * sin + dy * cos) / b;
+      return r1 * r1 + r2 * r2 <= 1.2; // slightly larger for clearance
+  };
+
+    const distToSegment = (px, py, x1, y1, x2, y2) => {
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      if (dx === 0 && dy === 0) return Math.hypot(px - x1, py - y1);
+      const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)));
+      const cx = x1 + t * dx;
+      const cy = y1 + t * dy;
+      return Math.hypot(px - cx, py - cy);
+    };
+
+    const pointNearRiver = (px, py, points, thickness) => {
+      for (let i = 0; i < points.length - 1; i++) {
+        const d = distToSegment(px, py, points[i].x, points[i].y, points[i+1].x, points[i+1].y);
+        if (d <= thickness / 2 + 4) return true; // +4 for clearance
+      }
+      return false;
+    };
+
+    const lakes = [];
+    const rivers = [];
+    const bridges = [];
+
+    // --- Spawn Lakes ---
+    for (let i = 0; i < 3; i++) {
+      const a = 35 + Math.random() * 70; // 1 to 3 settlements
+      const b = 35 + Math.random() * 70;
+      const x = 100 + Math.random() * (FIELD_SIZE - 200);
+      const y = 100 + Math.random() * (FIELD_SIZE - 200);
+      const angle = Math.random() * Math.PI;
+      lakes.push({ x, y, a, b, angle });
+    }
+
+    // --- Spawn Rivers & Bridges ---
+    for (let i = 0; i < 2; i++) {
+      const edge = Math.floor(Math.random() * 4);
+      let x, y, tx, ty;
+      if (edge === 0) { x = Math.random() * FIELD_SIZE; y = 0; tx = Math.random() * FIELD_SIZE; ty = FIELD_SIZE; }
+      else if (edge === 1) { x = FIELD_SIZE; y = Math.random() * FIELD_SIZE; tx = 0; ty = Math.random() * FIELD_SIZE; }
+      else if (edge === 2) { x = Math.random() * FIELD_SIZE; y = FIELD_SIZE; tx = Math.random() * FIELD_SIZE; ty = 0; }
+      else { x = 0; y = Math.random() * FIELD_SIZE; tx = FIELD_SIZE; ty = Math.random() * FIELD_SIZE; }
+      
+      const points = [{x, y}];
+      const steps = 5 + Math.floor(Math.random() * 4);
+      const stepX = (tx - x) / steps;
+      const stepY = (ty - y) / steps;
+      for (let s = 1; s < steps; s++) {
+        const wobble = 100;
+        points.push({
+          x: x + stepX * s + (Math.random() - 0.5) * wobble,
+          y: y + stepY * s + (Math.random() - 0.5) * wobble
+        });
+      }
+      points.push({x: tx, y: ty});
+      const thickness = 15 + Math.random() * 10;
+      rivers.push({ points, thickness });
+      
+      // Spawn Bridge
+      const midIndex = 1 + Math.floor(Math.random() * (points.length - 2));
+      const p1 = points[midIndex];
+      const p2 = points[midIndex + 1];
+      const bridgeX = (p1.x + p2.x) / 2;
+      const bridgeY = (p1.y + p2.y) / 2;
+      
+      let validBridge = true;
+      for(let l of lakes) {
+        if (pointInEllipse(bridgeX, bridgeY, l.x, l.y, l.a, l.b, l.angle)) validBridge = false;
+      }
+      for(let otherRiv of rivers) {
+        if (otherRiv === rivers[rivers.length - 1]) continue;
+        if (pointNearRiver(bridgeX, bridgeY, otherRiv.points, otherRiv.thickness + 5)) validBridge = false;
+      }
+      if(validBridge) {
+        bridges.push({ x: bridgeX, y: bridgeY, angle: Math.atan2(p2.y-p1.y, p2.x-p1.x) });
+      }
+    }
 
     const resources = [];
     const spawnResource = (type, amount) => {
@@ -122,6 +206,20 @@ export default function SimulationCanvas({ initialPopulation }) {
       for (let t = 0; t < 3; t++) spawnResource('tree', 5);
       spawnResource('stone_vein', 20);
       if (i % 2 === 0) spawnResource('copper_vein', 50);  
+    }
+    // --- Filter Resources ---
+    for (let i = resources.length - 1; i >= 0; i--) {
+      const r = resources[i];
+      let remove = false;
+      for (let l of lakes) {
+        if (pointInEllipse(r.x, r.y, l.x, l.y, l.a + 5, l.b + 5, l.angle)) { remove = true; break; }
+      }
+      if (!remove) {
+        for (let riv of rivers) {
+          if (pointNearRiver(r.x, r.y, riv.points, riv.thickness + 5)) { remove = true; break; }
+        }
+      }
+      if (remove) resources.splice(i, 1);
     }
     resourcesRef.current = resources;
     
@@ -165,6 +263,30 @@ export default function SimulationCanvas({ initialPopulation }) {
       ctx.fillText(`Status: ${status}`, boxX + 12, boxY + 75);
     };
 
+    // --- Collision Logic Helper ---
+    const checkWater = (x, y) => {
+      for (let l of lakes) {
+        if (pointInEllipse(x, y, l.x, l.y, l.a, l.b, l.angle)) return true;
+      }
+      let inRiver = false;
+      for (let riv of rivers) {
+        if (pointNearRiver(x, y, riv.points, riv.thickness)) {
+          inRiver = true;
+          break;
+        }
+      }
+      if (inRiver) {
+        for (let b of bridges) {
+          const d = Math.hypot(x - b.x, y - b.y);
+          // Roughly check if inside bridge rectangle (20x16)
+          // For simplicity we use distance, could be improved with rotation but distance is okay for small bridges
+          if (d < 15) return false; 
+        }
+        return true;
+      }
+      return false;
+    };
+
     const loop = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
@@ -174,6 +296,26 @@ export default function SimulationCanvas({ initialPopulation }) {
 
       ctx.fillStyle = '#4CAF50';
       ctx.fillRect(0, 0, FIELD_SIZE, FIELD_SIZE);
+
+      // --- Draw Water Bodies ---
+      lakes.forEach(l => {
+        ctx.beginPath();
+        ctx.fillStyle = '#2196F3';
+        ctx.ellipse(l.x, l.y, l.a, l.b, l.angle, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      rivers.forEach(riv => {
+        ctx.beginPath();
+        ctx.strokeStyle = '#2196F3';
+        ctx.lineWidth = riv.thickness;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.moveTo(riv.points[0].x, riv.points[0].y);
+        for (let i = 1; i < riv.points.length; i++) {
+          ctx.lineTo(riv.points[i].x, riv.points[i].y);
+        }
+        ctx.stroke();
+      });
 
       const currentHumans = humansRef.current;
       const currentBases = basesRef.current;
@@ -476,6 +618,8 @@ export default function SimulationCanvas({ initialPopulation }) {
 
       let selectedHuman = null;
       currentHumans.forEach(human => {
+        const oldX = human.x;
+        const oldY = human.y;
         const myBase = currentBases.find(b => b.id === human.communityId);
         const leaderHuman = currentHumans.find(h => h.communityId === human.communityId && h.isLeader);
         
@@ -485,8 +629,26 @@ export default function SimulationCanvas({ initialPopulation }) {
           });
         });
 
+        if (checkWater(human.x, human.y)) {
+          human.x = oldX;
+          human.y = oldY;
+          // Reverse direction
+          human.vx = -human.vx || (Math.random() - 0.5) * 2;
+          human.vy = -human.vy || (Math.random() - 0.5) * 2;
+        }
+
         human.draw(ctx, myBase);
         if (human.isSelected) selectedHuman = human; 
+      });
+
+      // --- Draw Bridges ---
+      bridges.forEach(b => {
+        ctx.save();
+        ctx.translate(b.x, b.y);
+        ctx.rotate(b.angle);
+        ctx.fillStyle = '#8D6E63';
+        ctx.fillRect(-15, -8, 30, 16); // Bridge dimensions
+        ctx.restore();
       });
 
       let selectedResource = null;
