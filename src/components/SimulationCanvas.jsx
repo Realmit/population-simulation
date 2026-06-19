@@ -298,7 +298,35 @@ export default function SimulationCanvas({ initialPopulation }) {
           myBase.replantedThisPeriod++;
           return;
         }
+     
+        currentHumans.forEach(human => {
+          if (!human.isLeader || !human.communityId) return;
+          const myBase = currentBases.find(b => b.id === human.communityId);
+          if (!myBase) return;
 
+          const dx = human.x - myBase.x;
+          const dy = human.y - myBase.y;
+          const dist = Math.hypot(dx, dy);
+          const MAX_LEADER_DIST = 70;
+
+          if (dist > MAX_LEADER_DIST) {
+            // 1. Возвращаем на границу
+            human.x = myBase.x + (dx / dist) * MAX_LEADER_DIST;
+            human.y = myBase.y + (dy / dist) * MAX_LEADER_DIST;
+
+            // 2. Считаем базовый угол направления НА базу
+            const angleToBase = Math.atan2(-dy, -dx);
+
+            // 3. Добавляем случайное отклонение (например, от -0.5 до +0.5 радиан, это около +-30 градусов)
+            const randomOffset = (Math.random() - 0.5) * 1.0; 
+            const finalAngle = angleToBase + randomOffset;
+
+            // 4. Задаем новую скорость с учетом измененного угла
+            const currentSpeed = Math.hypot(human.vx || 0, human.vy || 0) || 1;
+            human.vx = Math.cos(finalAngle) * currentSpeed;
+            human.vy = Math.sin(finalAngle) * currentSpeed;
+          }
+        });
         if (human.restTimer > 0) return;
 
         if (human.currentTask === 'going_to_leader' && leaderHuman) {
