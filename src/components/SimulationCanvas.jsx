@@ -208,34 +208,38 @@ export default function SimulationCanvas({ initialPopulation }) {
       });
 
       const unalignedHumans = currentHumans.filter(h => h.communityId === null && !h.isSelected);
+
       for (let i = 0; i < unalignedHumans.length; i++) {
         const primary = unalignedHumans[i];
-        let nearbyHumans = [primary];
+        if (primary.communityId !== null) continue;
+        const MIN_DIST = 70;
 
+        const tooClose = currentBases.some(b => Math.hypot(b.x - primary.x, b.y - primary.y) < MIN_DIST);
+        if (tooClose) continue;
+
+        let nearbyHumans = [primary];
         for (let j = 0; j < unalignedHumans.length; j++) {
           if (i === j) continue;
-          const other = unalignedHumans[j];
+          const other = unalignedHumans[j];    
+          if (other.communityId !== null) continue;
+
           const dist = Math.hypot(primary.x - other.x, primary.y - other.y);
           if (dist < 40) nearbyHumans.push(other);
         }
 
         if (nearbyHumans.length < 4) continue;
+        if (nearbyHumans.length > 6) {
+          nearbyHumans = nearbyHumans.slice(0, 6);
+        }
 
-        const newCommunityId = Date.now();
+        const newCommunityId = Date.now() + i;
         let leader = nearbyHumans[0];
+
         for (let member of nearbyHumans) {
           member.communityId = newCommunityId;
           if (member.leaderScore > leader.leaderScore) leader = member;
         }
         leader.isLeader = true;
-
-        const MIN_DIST = 70;
-        const tooClose = currentBases.some(b => {
-        const d = Math.hypot(b.x - leader.x, b.y - leader.y);
-        return d < MIN_DIST;
-        });
-
-        if(tooClose) { nearbyHumans.forEach(h => (h.communityId = null)); continue; }
 
         const newBase = new Base(newCommunityId, leader.x, leader.y, nearbyHumans.length);
         newBase.resources = { wood: 0, stone: 0, copper: 0, wood_tools: 0, stone_tools: 0, copper_tools: 0 };
@@ -246,7 +250,6 @@ export default function SimulationCanvas({ initialPopulation }) {
           const d = Math.hypot(r.x - leader.x, r.y - leader.y);
           return d > BASE_CLEAR_RADIUS;
         });
-        
       }
 
       currentHumans.forEach(human => {
