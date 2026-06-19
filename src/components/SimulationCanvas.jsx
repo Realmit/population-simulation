@@ -125,7 +125,7 @@ export default function SimulationCanvas({ initialPopulation }) {
     let animationId;
     let tickCount = 0; 
     const drawResourceTooltip = (ctx, res, fieldSize) => {
-      const boxWidth = 160;
+      const boxWidth = 220;
       const boxHeight = 85;
       
       const zoom = zoomRef.current;
@@ -147,19 +147,19 @@ export default function SimulationCanvas({ initialPopulation }) {
       ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
 
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 14px sans-serif';
+      ctx.font = 'bold 20px sans-serif';
       ctx.textAlign = 'left';
       
       const typeName = res.type.replace('_', ' ').toUpperCase();
-      ctx.fillText(typeName, boxX + 12, boxY + 22);
+      ctx.fillText(typeName, boxX + 12, boxY + 25);
 
-      ctx.font = '12px sans-serif';
+      ctx.font = '20px sans-serif';
       ctx.fillStyle = '#eeeeee';
-      ctx.fillText(`Resources Left: ${res.amount}`, boxX + 12, boxY + 45);
+      ctx.fillText(`Resources Left: ${res.amount}`, boxX + 12, boxY + 50);
       
       const status = res.minerId ? 'Being Mined' : 'Idle';
       ctx.fillStyle = res.minerId ? '#FFD700' : '#A0C4FF';
-      ctx.fillText(`Status: ${status}`, boxX + 12, boxY + 65);
+      ctx.fillText(`Status: ${status}`, boxX + 12, boxY + 75);
     };
 
     const loop = () => {
@@ -182,21 +182,17 @@ export default function SimulationCanvas({ initialPopulation }) {
         const villageMembers = currentHumans.filter(h => h.communityId === base.id);
         
         // Tool-based population limit logic
-        let woodBonus = 0;
-        let stoneBonus = 0;
-        let copperBonus = 0;
-
-        villageMembers.forEach(member => {
-          if (member.tool === 'wood') woodBonus += 1;
-          if (member.tool === 'stone') stoneBonus += 1;
-          if (member.tool === 'copper') copperBonus += 1;
+        const toolBonuses = { wood: 0, stone: 0, copper: 0 };
+        villageMembers.forEach(({ tool }) => {
+          if (tool in toolBonuses) {
+            toolBonuses[tool]++;
+          }
         });
-
         // Apply strict tool caps
-        woodBonus = Math.min(woodBonus, 5);
-        stoneBonus = Math.min(stoneBonus, 10);
+        toolBonuses.wood = Math.min(toolBonuses.wood, 5);
+        toolBonuses.stone = Math.min(toolBonuses.stone, 10);
 
-        base.populationLimit = 4 + woodBonus + stoneBonus + copperBonus;
+        base.populationLimit = 4 + toolBonuses.wood + toolBonuses.stone + toolBonuses.copper;
         base.population = villageMembers.length;
 
         if (!base.replantWindowTimer || base.replantWindowTimer <= 0) {

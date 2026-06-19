@@ -140,7 +140,7 @@ export class Human {
             }
             this.taskTarget.amount--;
             this.taskTarget.minerId = null; this.taskTarget = null;
-            this.currentTask = null; this.restTimer = 1800; 
+            this.currentTask = null; this.restTimer = 900; 
           }
         }
       }
@@ -248,7 +248,7 @@ export class Human {
     if (!this.isSelected) return;
     const boxWidth = 265; 
     const hasParents = this.parents !== null;
-    const boxHeight = hasParents ? 240 : 190; 
+    const boxHeight = hasParents ? 215 : 165; 
     
     let boxX = this.x - boxWidth / 2;
     let boxY = this.y - boxHeight - 20;
