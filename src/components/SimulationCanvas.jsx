@@ -429,9 +429,9 @@ export default function SimulationCanvas({ initialPopulation }) {
           }
         }
       }
-
+      // Draws only squares (labels rendered seperatly, after everything)
       currentBases.forEach(base => {
-        base.draw(ctx);
+        base.draw(ctx);        
       });
 
       let selectedHuman = null;
@@ -453,7 +453,6 @@ export default function SimulationCanvas({ initialPopulation }) {
       currentResources.forEach(res => {
         ctx.beginPath();
         if (res.type === 'stick') { ctx.fillStyle = '#964B00'; ctx.arc(res.x, res.y, 2, 0, Math.PI * 2); }
-        else if (res.type === 'tree') { ctx.fillStyle = '#228B22'; ctx.arc(res.x, res.y, 6, 0, Math.PI * 2); }
         else if (res.type === 'stone_vein') { ctx.fillStyle = '#808080'; ctx.fillRect(res.x - 5, res.y - 5, 10, 10); }
         else if (res.type === 'copper_vein') { ctx.fillStyle = '#D2691E'; ctx.fillRect(res.x - 5, res.y - 5, 10, 10); }
         ctx.fill();
@@ -462,6 +461,24 @@ export default function SimulationCanvas({ initialPopulation }) {
         ctx.stroke();
 
         if (res.isSelected) selectedResource = res;
+      });
+      // Trees uppearing on top of other resources
+      currentResources
+        .filter(res => res.type === 'tree')
+        .forEach(res => {
+          ctx.beginPath();
+          ctx.fillStyle = '#228B22';
+          ctx.arc(res.x, res.y, 6, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.lineWidth = res.isSelected ? 2 : 1;
+          ctx.strokeStyle = res.isSelected ? '#FFFFFF' : '#222';
+          ctx.stroke();
+
+          if (res.isSelected) selectedResource = res;
+        });
+      // Labels for settlements
+      currentBases.forEach(base => {
+        base.drawLabel(ctx);     
       });
 
       ctx.restore();
