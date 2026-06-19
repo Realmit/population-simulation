@@ -57,8 +57,14 @@ const checkWaterBody = (x, y, lakes, rivers, bridges) => {
   }
   if (inRiver) {
     for (let b of bridges) {
-      const d = Math.hypot(x - b.x, y - b.y);
-      if (d < 15) return false;
+      const dx = x - b.x;
+      const dy = y - b.y;
+      const cos = Math.cos(-b.angle);
+      const sin = Math.sin(-b.angle);
+      const lx = dx * cos - dy * sin;
+      const ly = dx * sin + dy * cos;
+      
+      if (Math.abs(lx) <= 22 && Math.abs(ly) <= 12) return false;
     }
     return true;
   }
@@ -152,6 +158,33 @@ export default function SimulationCanvas({ initialPopulation }) {
     setRestartToken(t => t + 1);
     handleResetCamera();
   };
+  // ... existing code ...
+
+function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
+  if (!bridges || !Array.isArray(bridges) || bridges.length === 0) return null;
+  if (typeof hx !== 'number' || typeof hy !== 'number') return null;
+
+  let best = null;
+  let bestScore = Infinity;
+
+  for (const b of bridges) {
+    if (!b || typeof b.x !== 'number' || typeof b.y !== 'number') continue;
+
+    const mx = (b.x + (b.x2 ?? b.x)) / 2;
+    const my = (b.y + (b.y2 ?? b.y)) / 2;
+
+    const dHuman = Math.hypot(mx - hx, my - hy);
+    const dTarget = Math.hypot(mx - tx, my - ty);
+    const score = dHuman + dTarget * 0.5;
+
+    if (score < bestScore) {
+      bestScore = score;
+      best = { x: mx, y: my };
+    }
+  }
+
+  return best;
+}
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -690,7 +723,15 @@ export default function SimulationCanvas({ initialPopulation }) {
       currentBases.forEach(base => {
         base.draw(ctx);        
       });
-
+      // --- Отрисовка Мостов ---
+      bridges.forEach(b => {
+        ctx.save();
+        ctx.translate(b.x, b.y);
+        ctx.rotate(b.angle);
+        ctx.fillStyle = '#8D6E63';
+        ctx.fillRect(-15, -8, 30, 16);
+        ctx.restore();
+      });
       let selectedHuman = null;
       currentHumans.forEach(human => {
         const oldX = human.x;
@@ -703,35 +744,87 @@ export default function SimulationCanvas({ initialPopulation }) {
             id: Date.now() + Math.random(), type: 'tree', amount: 5, x: tx, y: ty, minerId: null, isSelected: false
           });
         });
-
-        if (checkWaterBody(human.x, human.y, lakes, rivers, bridges)) {
+        if (human.bridgeTarget) {
+          const bx = human.bridgeTarget.x;
+          const by = human.bridgeTarget.y;
+          const dist = Math.hypot(bx - human.x, by - human.y);
+          const spd = human.speed || Math.hypot(human.vx || 0, human.vy || 0) || 1;
+          if (dist < spd) {
+            human.x = bx;
+            human.y = by;
+            human.crossedBridge = true;
+            human.bridgeTarget = null;
+          } 
+        } else if (!human.crossedBridge && checkWaterBody(human.x, human.y, lakes, rivers, bridges)) {
           human.x = oldX;
           human.y = oldY;
-          if (human.currentTask === 'gathering' || human.currentTask === 'replanting') {
-            if (human.taskTarget) {
-              human.taskTarget.minerId = null; // Освобождаем ресурс для других
+          let destX = myBase ? myBase.x : human.x;
+          let destY = myBase ? myBase.y : human.y;
+          let needsBridge = false;
+
+            if (human.currentTask === 'gathering') {
+              if (human.taskTarget && checkWaterBody(human.taskTarget.x, human.taskTarget.y, lakes, rivers, bridges)) {
+                if (human.taskTarget) human.taskTarget.minerId = null;
+                human.currentTask = null;
+                human.taskTarget = null;
+                human.restTimer = 300;
+              } else if (human.taskTarget) {
+                destX = human.taskTarget.x;
+                destY = human.taskTarget.y;
+                needsBridge = true;
+              }
+            } else if (human.currentTask === 'replanting') {
+              // Если точка посадки каким-то образом оказалась в воде, отменяем задачу
+              if (checkWaterBody(human.replantX, human.replantY, lakes, rivers, bridges)) {
+                human.currentTask = null;
+                human.restTimer = 300;
+              } else {
+                destX = human.replantX;
+                destY = human.replantY;
+                needsBridge = true;
+              }
+            } 
+            else if (human.currentTask === 'going_to_leader' && leaderHuman) {
+              destX = leaderHuman.x;
+              destY = leaderHuman.y;
+              needsBridge = true;
+            } else if (human.currentTask === 'returning') {  
+              needsBridge = true;
             }
-            human.currentTask = null;
-            human.taskTarget = null;
-            human.restTimer = 300; // Отдыхаем перед поиском новой цели
+
+            if (needsBridge) {
+              human.crossedBridge = false; 
+              const bridge = findNearestBridgeTowards(human.x, human.y, destX, destY, bridges);
+              
+              if (bridge) {
+                human.bridgeTarget = bridge;
+              } else {
+                // No bridge reachable — give up the task safely.
+                if (human.taskTarget) human.taskTarget.minerId = null;
+                human.currentTask = null;
+                human.taskTarget = null;
+                human.restTimer = 300;
+                // Bounce to wander away from the water
+                human.vx = -human.vx || (Math.random() - 0.5) * 2;
+                human.vy = -human.vy || (Math.random() - 0.5) * 2;
+              }
+            } else {
+              // Casual wandering — just bounce off the water.
+              human.vx = -human.vx || (Math.random() - 0.5) * 2;
+              human.vy = -human.vy || (Math.random() - 0.5) * 2;
+            }
           }
-          // Отскок для обычного блуждания
-          human.vx = -human.vx || (Math.random() - 0.5) * 2;
-          human.vy = -human.vy || (Math.random() - 0.5) * 2;
+
+        // Reset the crossed flag once we're safely back at base
+
+        if (human.crossedBridge) {
+        const onSolidGround = !checkWaterBody(human.x, human.y, lakes, rivers, []);
+          if (onSolidGround) {
+            human.crossedBridge = false;
+          }
         }
-
         human.draw(ctx, myBase);
-        if (human.isSelected) selectedHuman = human; 
-      });
-
-      // --- Отрисовка Мостов ---
-      bridges.forEach(b => {
-        ctx.save();
-        ctx.translate(b.x, b.y);
-        ctx.rotate(b.angle);
-        ctx.fillStyle = '#8D6E63';
-        ctx.fillRect(-15, -8, 30, 16);
-        ctx.restore();
+        if (human.isSelected) selectedHuman = human;
       });
 
       let selectedResource = null;
@@ -940,11 +1033,11 @@ export default function SimulationCanvas({ initialPopulation }) {
   }, []);
 
   const isSafeSpawn = (x, y) => {
-    const { lakes, rivers } = waterRef.current;
+    const { lakes, rivers} = waterRef.current;
     for (let l of lakes) {
       if (pointInEllipse(x, y, l.x, l.y, l.a + 10, l.b + 10, l.angle)) return false;
     }
-    for (let riv of rivers) {
+    for (let riv of (rivers || bridges)) {
       if (pointNearRiver(x, y, riv.points, riv.thickness + 10)) return false;
     }
     return true;

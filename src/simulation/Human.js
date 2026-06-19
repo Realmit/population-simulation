@@ -78,7 +78,7 @@ export class Human {
     }
 
     if (this.isSelected) { this.vx = 0; this.vy = 0; return; }
-
+    if (!this.bridgeTarget) {
     // Collision Avoidance
     if (resourcesList) {
       for (let res of resourcesList) {
@@ -122,10 +122,21 @@ export class Human {
       } else if (this.currentTask === 'going_to_leader' && leaderHuman) {
         this.moveToTarget(leaderHuman.x, leaderHuman.y);
       } else if (this.currentTask === 'crafting') {
-        this.moveToTarget(myBase.x, myBase.y);
+        const dist = Math.sqrt(Math.pow(this.x - myBase.x, 2) + Math.pow(this.y - myBase.y, 2));
+        if (dist > 10) {
+          this.moveToTarget(myBase.x, myBase.y);
+        } else {
+          // Прибыли на базу — стоим на месте и крафтим
+          this.vx = 0; 
+          this.vy = 0;
+        }
+        
         this.taskTimer--;
-        if (this.taskTimer <= 0) { this.currentTask = null; this.restTimer = 1800; }
-      } else if (this.currentTask === 'gathering' && this.taskTarget) {
+        if (this.taskTimer <= 0) { 
+          this.currentTask = null; 
+          this.restTimer = 1800; 
+        }
+      } else if (this.currentTask === 'gathering') {
         const dist = Math.sqrt(Math.pow(this.x - this.taskTarget.x, 2) + Math.pow(this.y - this.taskTarget.y, 2));
         if (dist > 14) {
           this.moveToTarget(this.taskTarget.x, this.taskTarget.y);
@@ -172,11 +183,24 @@ export class Human {
         }
       }
     } else {
+      // Ограничение скорости для бродячих людей
       const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
       if (speed > this.maxSpeed) { this.vx = (this.vx / speed) * this.maxSpeed; this.vy = (this.vy / speed) * this.maxSpeed; }
-      this.x += this.vx; this.y += this.vy;
     }
+  }
+  if (this.bridgeTarget) {
+      this.moveToTarget(this.bridgeTarget.x, this.bridgeTarget.y);
+    }
+    // ОБЩЕЕ ПЕРЕМЕЩЕНИЕ (теперь применяется и для задач, и для бродяжничества):
+    const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+    if (speed > this.maxSpeed) {
+      this.vx = (this.vx / speed) * this.maxSpeed;
+      this.vy = (this.vy / speed) * this.maxSpeed;
+    }
+    this.x += this.vx; 
+    this.y += this.vy;
 
+    // Ограничение по границам экрана (остается без изменений)
     if (this.x < this.radius) { this.x = this.radius; this.vx *= -1; }
     if (this.x > fieldSize - this.radius) { this.x = fieldSize - this.radius; this.vx *= -1; }
     if (this.y < this.radius) { this.y = this.radius; this.vy *= -1; }
@@ -190,8 +214,6 @@ export class Human {
     if (dist > 2) {
       this.vx = (dx / dist) * this.maxSpeed;
       this.vy = (dy / dist) * this.maxSpeed;
-      this.x += this.vx;
-      this.y += this.vy;
     }
   }
 
@@ -264,10 +286,12 @@ export class Human {
       const progress = 1 - (this.taskTimer / this.maxTaskTimer);
       const barWidth = 14;
       const barHeight = 3;
-      ctx.fillStyle = 'rgba(255, 0, 0, 0.6)';
-      ctx.fillRect(this.x - barWidth / 2, this.y - this.radius - 8, barWidth, barHeight);
-      ctx.fillStyle = 'rgba(0, 255, 0, 0.8)';
-      ctx.fillRect(this.x - barWidth / 2, this.y - this.radius - 8, barWidth * progress, barHeight);
+      
+      // Only draw the progress bar if there is actual progress (avoids red bar while walking)
+      if (progress > 0) {
+        ctx.fillStyle = 'rgba(0, 255, 0, 0.8)';
+        ctx.fillRect(this.x - barWidth / 2, this.y - this.radius - 8, barWidth * progress, barHeight);
+      }
     }
   }
 
