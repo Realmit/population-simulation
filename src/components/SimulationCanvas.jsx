@@ -325,77 +325,114 @@ export default function SimulationCanvas({ initialPopulation }) {
         });
         if (human.restTimer > 0) return;
 
-        if (human.currentTask === 'going_to_leader' && leaderHuman) {
+                if (human.currentTask === 'going_to_leader' && leaderHuman) {
           const distToLeader = Math.sqrt(Math.pow(human.x - leaderHuman.x, 2) + Math.pow(human.y - leaderHuman.y, 2));
           if (distToLeader <= 16) {
-            if (!human.tool && myBase.resources.wood_tools > 0) { human.tool = 'wood'; myBase.resources.wood_tools--; }
-            if (human.tool === 'wood' && myBase.resources.stone_tools > 0) { human.tool = 'stone'; myBase.resources.stone_tools--; }
-            if (human.tool === 'stone' && myBase.resources.copper_tools > 0) { human.tool = 'copper'; myBase.resources.copper_tools--; }
+            const r = myBase.resources;
+            let toolUpgradeAction = null;
 
-            if (!human.tool && myBase.resources.wood >= 4) {
-              myBase.resources.wood -= 4; human.currentTask = 'crafting'; human.taskTimer = 1200; human.maxTaskTimer = 1200; human.tool = 'wood'; return;
-            } else if (human.tool === 'wood' && myBase.resources.wood >= 8 && myBase.resources.stone >= 4) {
-              myBase.resources.wood -= 8; myBase.resources.stone -= 4; human.currentTask = 'crafting'; human.taskTimer = 1200; human.maxTaskTimer = 1200; human.tool = 'stone'; return;
-            } else if (human.tool === 'stone' && myBase.resources.copper >= 16 && myBase.resources.wood >= 4) {
-              myBase.resources.copper -= 16; myBase.resources.wood -= 4; human.currentTask = 'crafting'; human.taskTimer = 1200; human.maxTaskTimer = 1200; human.tool = 'copper'; return;
+            // Попытка улучшить инструмент 
+            if (!human.tool && r.wood_tools > 0) {
+              toolUpgradeAction = () => { human.tool = 'wood'; r.wood_tools--; };
+            } else if (human.tool === 'wood' && r.stone_tools > 0) {
+              toolUpgradeAction = () => { human.tool = 'stone'; r.stone_tools--; };
+            } else if (human.tool === 'stone' && r.copper_tools > 0) {
+              toolUpgradeAction = () => { human.tool = 'copper'; r.copper_tools--; };
+            } else if (!human.tool && r.wood >= 8) {
+              toolUpgradeAction = () => {
+                r.wood -= 4;
+                human.currentTask = 'crafting'; human.taskTimer = 1200; human.maxTaskTimer = 1200;
+                human.tool = 'wood';
+              };
+            } else if (human.tool === 'wood' && r.wood >= 12 && r.stone >= 8) {
+              toolUpgradeAction = () => {
+                r.wood -= 4; r.stone -= 8;
+                human.currentTask = 'crafting'; human.taskTimer = 1200; human.maxTaskTimer = 1200;
+                human.tool = 'stone';
+              };
+            } else if (human.tool === 'stone' && r.copper >= 12 && r.wood >= 8) {
+              toolUpgradeAction = () => {
+                r.copper -= 8; r.wood -= 4;
+                human.currentTask = 'crafting'; human.taskTimer = 1200; human.maxTaskTimer = 1200;
+                human.tool = 'copper';
+              };
             }
 
-            let targetType = null;
-            const availableTypes = new Set(currentResources.map(r => r.type));
+            if (toolUpgradeAction) {
+              toolUpgradeAction();
+              return;
+            }
 
-            if (myBase.resources.wood < 10 && (availableTypes.has('tree') || availableTypes.has('stick'))) {
-              targetType = (human.tool && availableTypes.has('tree')) ? 'tree' : 'stick';
-            } else if (human.tool === 'wood' || human.tool === 'stone' || human.tool === 'copper') {
-              if (myBase.resources.stone < 8 && availableTypes.has('stone_vein')) {
-                targetType = 'stone_vein';
-              } else if ((human.tool === 'stone' || human.tool === 'copper') && availableTypes.has('copper_vein')) {
-                targetType = 'copper_vein';
-              } else if (availableTypes.has('tree')) {
-                targetType = 'tree';
-              } else if (availableTypes.has('stone_vein')) {
-                targetType = 'stone_vein';
-              } else if (availableTypes.has('stick')) {
-                targetType = 'stick';
+            // Выбор ресурса по приоритету потребности базы 
+            const availableTypes = new Set(currentResources.map(res => res.type));
+            const tool = human.tool;
+            const needs = [];
+
+            if (availableTypes.has('stick')) {
+              const deficit = Math.max(0, 20 - r.wood);
+              if (!tool) {
+                needs.push({ type: 'stick', score: 100 });
+              } else {
+                needs.push({ type: 'stick', score: 20 + deficit }); 
               }
-            } else if (availableTypes.has('stick')) {
-              targetType = 'stick';
             }
+            if (tool && availableTypes.has('tree')) {
+              const deficit = Math.max(0, 20 - r.wood);
+              needs.push({ type: 'tree', score: 10 + deficit });
+            }
+            if (tool && availableTypes.has('stone_vein')) {
+              const deficit = Math.max(0, 16 - r.stone);
+              needs.push({ type: 'stone_vein', score: 8 + deficit });
+            }
+            if ((tool === 'stone' || tool === 'copper') && availableTypes.has('copper_vein')) {
+              const deficit = Math.max(0, 16 - r.copper);
+              needs.push({ type: 'copper_vein', score: 8 + deficit });
+            }
+
+            needs.sort((a, b) => b.score - a.score);
+            let targetType = needs.length > 0 ? needs[0].type : null;
 
             if (!targetType) {
-               if (availableTypes.has('copper_vein') && ['stone', 'copper'].includes(human.tool)) targetType = 'copper_vein';
-               else if (availableTypes.has('stone_vein') && ['wood', 'stone', 'copper'].includes(human.tool)) targetType = 'stone_vein';
-               else if (availableTypes.has('tree') && human.tool) targetType = 'tree';
-               else if (availableTypes.has('stick')) targetType = 'stick';
+              if (availableTypes.has('stick')) targetType = 'stick';
+              else if (tool && availableTypes.has('tree')) targetType = 'tree';
+              else if (tool && availableTypes.has('stone_vein')) targetType = 'stone_vein';
+              else if ((tool === 'stone' || tool === 'copper') && availableTypes.has('copper_vein')) targetType = 'copper_vein';
             }
 
-            let nearestNode = null;
-            let minDist = Infinity;
-            currentResources.forEach(node => {
-              if (node.minerId !== null && node.minerId !== human.id) return;
-              if (node.type !== targetType && !(targetType === 'stick' && node.type === 'tree')) return;
-              const d = Math.sqrt(Math.pow(human.x - node.x, 2) + Math.pow(human.y - node.y, 2));
-              if (d < minDist) { minDist = d; nearestNode = node; }
-            });
+            // Поиск ближайшего узла 
+            if (targetType) {
+              let nearestNode = null;
+              let minDist = Infinity;
+              currentResources.forEach(node => {
+                if (node.minerId !== null && node.minerId !== human.id) return;
+                if (node.type !== targetType) return;
+                const d = Math.sqrt(Math.pow(human.x - node.x, 2) + Math.pow(human.y - node.y, 2));
+                if (d < minDist) { minDist = d; nearestNode = node; }
+              });
 
-            if (nearestNode) {
-              nearestNode.minerId = human.id;
-              human.taskTarget = nearestNode;
-              human.currentTask = 'gathering';
-              if (nearestNode.type === 'stick') {
-                human.taskTimer = 60;
-              } else if (nearestNode.type === 'tree') {
-                let baseSec = 1200;
-                if (human.tool === 'wood') baseSec *= 0.6;
-                if (human.tool === 'stone') baseSec *= 0.36;
-                if (human.tool === 'copper') baseSec *= 0.216;
-                human.taskTimer = Math.max(60, Math.floor(baseSec));
+              if (nearestNode) {
+                nearestNode.minerId = human.id;
+                human.taskTarget = nearestNode;
+                human.currentTask = 'gathering';
+                if (nearestNode.type === 'stick') {
+                  human.taskTimer = 60;
+                } else if (nearestNode.type === 'tree') {
+                  let baseSec = 1200;
+                  if (human.tool === 'wood') baseSec *= 0.6;
+                  if (human.tool === 'stone') baseSec *= 0.36;
+                  if (human.tool === 'copper') baseSec *= 0.216;
+                  human.taskTimer = Math.max(60, Math.floor(baseSec));
+                } else {
+                  let baseSec = 3600;
+                  if (human.tool === 'stone') baseSec *= 0.6;
+                  if (human.tool === 'copper') baseSec *= 0.36;
+                  human.taskTimer = Math.max(60, Math.floor(baseSec));
+                }
+                human.maxTaskTimer = human.taskTimer;
               } else {
-                let baseSec = 3600;
-                if (human.tool === 'stone') baseSec *= 0.6;
-                if (human.tool === 'copper') baseSec *= 0.36;
-                human.taskTimer = Math.max(60, Math.floor(baseSec));
+                human.currentTask = null;
+                human.restTimer = 300;
               }
-              human.maxTaskTimer = human.taskTimer;
             } else {
               human.currentTask = null;
               human.restTimer = 300;
