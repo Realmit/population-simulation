@@ -135,6 +135,33 @@ export class Human {
           if (this.taskTimer <= 0) {
             if (myBase && myBase.resources) {
               if (this.taskTarget.type === 'stick' || this.taskTarget.type === 'tree') myBase.resources.wood += 1;
+            const pointInEllipse = (px, py, cx, cy, a, b, angle) => {
+              const dx = px - cx;
+              const dy = py - cy;
+              const cos = Math.cos(angle);
+              const sin = Math.sin(angle);
+              const r1 = (dx * cos + dy * sin) / a;
+              const r2 = (-dx * sin + dy * cos) / b;
+              return r1 * r1 + r2 * r2 <= 1.2; // slightly larger for clearance
+            };
+
+            const distToSegment = (px, py, x1, y1, x2, y2) => {
+              const dx = x2 - x1;
+              const dy = y2 - y1;
+              if (dx === 0 && dy === 0) return Math.hypot(px - x1, py - y1);
+              const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)));
+              const cx = x1 + t * dx;
+              const cy = y1 + t * dy;
+              return Math.hypot(px - cx, py - cy);
+            };
+
+            const pointNearRiver = (px, py, points, thickness) => {
+              for (let i = 0; i < points.length - 1; i++) {
+                const d = distToSegment(px, py, points[i].x, points[i].y, points[i+1].x, points[i+1].y);
+                if (d <= thickness / 2 + 4) return true; // +4 for clearance
+              }
+              return false;
+            };
               if (this.taskTarget.type === 'stone_vein') myBase.resources.stone += 1;
               if (this.taskTarget.type === 'copper_vein') myBase.resources.copper += 1;
             }
