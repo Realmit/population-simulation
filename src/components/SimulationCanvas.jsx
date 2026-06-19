@@ -27,6 +27,7 @@ export default function SimulationCanvas({ initialPopulation }) {
     humans: [] 
   });
 
+  // Renaming bases and humans
   const [renameModal, setRenameModal] = useState({
     isOpen: false,
     type: null, 
@@ -123,7 +124,6 @@ export default function SimulationCanvas({ initialPopulation }) {
     
     let animationId;
     let tickCount = 0; 
-
     const drawResourceTooltip = (ctx, res, fieldSize) => {
       const boxWidth = 160;
       const boxHeight = 85;
