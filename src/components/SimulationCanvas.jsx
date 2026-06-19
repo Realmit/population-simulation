@@ -11,6 +11,7 @@ export default function SimulationCanvas({ initialPopulation }) {
   const FIELD_SIZE = 1000;
   const [errorMessage, setErrorMessage] = useState(null);
 
+
   // Zoom and Pan Refs
   const zoomRef = useRef(1.0);
   const panRef = useRef({ x: 0, y: 0 });
@@ -20,6 +21,7 @@ export default function SimulationCanvas({ initialPopulation }) {
   // Simulation settings states
   const [popInput, setPopInput] = useState(initialPopulation);
   const [simPopulation, setSimPopulation] = useState(initialPopulation);
+  const [restartToken, setRestartToken] = useState(0); 
 
   const [uiState, setUiState] = useState({
     population: initialPopulation,
@@ -76,13 +78,14 @@ export default function SimulationCanvas({ initialPopulation }) {
     zoomRef.current = 1.0;
     panRef.current = { x: 0, y: 0 };
   };
-
+  
   const handleRestartSimulation = () => {
     if (popInput < 1 || popInput > 500 || isNaN(popInput)) {
     setErrorMessage("Initial population must be between 1 and 500.");
     return;
   }
     setSimPopulation(popInput);
+    setRestartToken(t => t + 1);
     handleResetCamera();
   };
 
@@ -558,7 +561,7 @@ export default function SimulationCanvas({ initialPopulation }) {
     loop();
 
     return () => cancelAnimationFrame(animationId);
-  }, [simPopulation]); 
+  }, [simPopulation, restartToken]); 
 
   // Native Interactions Setup
   useEffect(() => {
