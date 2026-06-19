@@ -188,13 +188,13 @@ export default function SimulationCanvas({ initialPopulation }) {
 
         villageMembers.forEach(member => {
           if (member.tool === 'wood') woodBonus += 1;
-          if (member.tool === 'stone') stoneBonus += 2;
-          if (member.tool === 'copper') copperBonus += 3;
+          if (member.tool === 'stone') stoneBonus += 1;
+          if (member.tool === 'copper') copperBonus += 1;
         });
 
         // Apply strict tool caps
-        woodBonus = Math.min(woodBonus, 10);
-        stoneBonus = Math.min(stoneBonus, 20);
+        woodBonus = Math.min(woodBonus, 5);
+        stoneBonus = Math.min(stoneBonus, 10);
 
         base.populationLimit = 4 + woodBonus + stoneBonus + copperBonus;
         base.population = villageMembers.length;
