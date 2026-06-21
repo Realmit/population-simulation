@@ -753,6 +753,8 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
             human.x = bx;
             human.y = by;
             human.crossedBridge = true;
+            human.lastBridgeX = bx; 
+            human.lastBridgeY = by;
             human.bridgeTarget = null;
           } 
         } else if (!human.crossedBridge && checkWaterBody(human.x, human.y, lakes, rivers, bridges)) {
@@ -815,17 +817,28 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
             }
           }
 
-        // Reset the crossed flag once we're safely back at base
-
+        // Reset the crossed flag once we're safely away from the bridge
         if (human.crossedBridge) {
-        const onSolidGround = !checkWaterBody(human.x, human.y, lakes, rivers, []);
-          if (onSolidGround) {
-            human.crossedBridge = false;
+          const onSolidGround = !checkWaterBody(human.x, human.y, lakes, rivers, bridges);
+          
+          if (!onSolidGround) {
+            // Stepped off the bridge into water, revert position to stay on bridge
+            human.x = oldX;
+            human.y = oldY;
+          } else if (human.lastBridgeX !== undefined) {
+            const distToBridge = Math.hypot(human.x - human.lastBridgeX, human.y - human.lastBridgeY);
+            // If we've safely walked away from the bridge area
+            if (distToBridge > 25) {
+              human.crossedBridge = false;
+              human.lastBridgeX = undefined;
+              human.lastBridgeY = undefined;
+            }
           }
         }
         human.draw(ctx, myBase);
         if (human.isSelected) selectedHuman = human;
       });
+
 
       let selectedResource = null;
       currentResources.forEach(res => {
