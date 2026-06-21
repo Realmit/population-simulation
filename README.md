@@ -4,7 +4,7 @@
 <h1 align="center">
   <a href="#">ТЕПЕРЬ С ВОДОЁМАМИ</a>
 </h1>
-<img width="1097" height="811" alt="image" src="https://github.com/user-attachments/assets/a28e7863-e572-4b36-b649-4c482c6ca6bd" />
+<img width="1438" height="941" alt="{9180B6F2-E490-4101-9669-2A1D7789CABC}" src="https://github.com/user-attachments/assets/ce3eaaf2-54eb-42f4-8918-6c11075ce199" />
 ## Особенности
 
 - **Динамическое образование сообществ**: Люди автоматически формируют деревни при скоплении в группах
