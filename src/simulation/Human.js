@@ -13,7 +13,9 @@ export class Human {
     this.bridgePhase = null;
     this.parents = parents;
     this.isRoyal = false;
-
+    this.bridgeCooldown = 0;
+    this.bridgeOscillationCount = 0; 
+    this.lastBridgeCrossingTime = 0;
     this.tool = null; 
     this.currentTask = null; 
     this.taskTarget = null; 
@@ -151,9 +153,8 @@ export class Human {
 
     const findBridgeForPath = (targetX, targetY) => {
       if (!waterCheckFn || !allBridges || allBridges.length === 0) return false;
-      if (waterCheckFn(this.x, this.y)) return false; // already in water, let reactive handle
+      if (waterCheckFn(this.x, this.y)) return false; 
 
-      // Check if direct path crosses water
       const steps = 15;
       let pathCrossesWater = false;
       for (let i = 1; i < steps; i++) {
@@ -164,21 +165,22 @@ export class Human {
       }
       if (!pathCrossesWater) return false;
 
-      // Find best bridge dynamically choosing entry/exit sides
       let closestDist = Infinity;
       let bestBridge = null;
       for (const b of allBridges) {
         if (waterCheckFn(b.entry.x, b.entry.y) || waterCheckFn(b.exit.x, b.exit.y)) continue;
         
-        // Check BOTH directions: crossing Entry->Exit OR Exit->Entry
+        // FIX: Check distances from BOTH sides of the bridge
         const d1 = Math.hypot(this.x - b.entry.x, this.y - b.entry.y) + Math.hypot(b.exit.x - targetX, b.exit.y - targetY);
         const d2 = Math.hypot(this.x - b.exit.x, this.y - b.exit.y) + Math.hypot(b.entry.x - targetX, b.entry.y - targetY);
         
-        let totalDist = Math.min(d1, d2);
+        const distViaBridge = Math.min(d1, d2);
+        const distDirect = Math.hypot(this.x - targetX, this.y - targetY);
         
-        if (totalDist < closestDist) {
-          closestDist = totalDist;
-          // Dynamically map entry to whichever side the human is closest to
+        // Only use bridge if it doesn't add more than 3x the direct distance
+        if (distViaBridge < distDirect * 2 && distViaBridge < closestDist) {
+          closestDist = distViaBridge;
+          // Dynamically set 'entry' to whichever side the villager is standing closest to
           bestBridge = d1 < d2 ? { entry: b.entry, exit: b.exit } : { entry: b.exit, exit: b.entry };
         }
       }
@@ -206,8 +208,6 @@ export class Human {
       }
     }
     
-    // --- Water avoidance logic ---
-    // --- Water avoidance logic ---
     if (waterCheckFn && !this.bridgeTarget && this.bridgePhase !== 'crossing') {
       const lookAhead = 15;
       const checkX = this.x + this.vx * lookAhead;
@@ -220,11 +220,11 @@ export class Human {
         const goal = getCurrentGoal();
         let bridge = null;
         
-        // FIX: Only villagers (communityId) look for bridges, and ONLY if not on cooldown
-        if (this.communityId && this.bridgeCooldown <= 0 && allBridges && allBridges.length > 0) {
+        if (!this.isLeader && this.communityId && allBridges && allBridges.length > 0) {
           let closestDist = Infinity;
           for (const b of allBridges) {
             if (!waterCheckFn(b.entry.x, b.entry.y) && !waterCheckFn(b.exit.x, b.exit.y)) {
+              // FIX: Calculate paths matching the closest entry node
               const d1 = Math.hypot(this.x - b.entry.x, this.y - b.entry.y) + Math.hypot(b.exit.x - goal.x, b.exit.y - goal.y);
               const d2 = Math.hypot(this.x - b.exit.x, this.y - b.exit.y) + Math.hypot(b.entry.x - goal.x, b.entry.y - goal.y);
               
@@ -255,8 +255,7 @@ export class Human {
       }
     }
     
-    // FIX: Apply cooldown check to proactive pathfinding as well
-    if (!this.bridgeTarget && this.communityId && waterCheckFn && this.bridgeCooldown <= 0) {
+    if (!this.bridgeTarget && this.communityId && waterCheckFn && this.bridgeCooldown <= 0 && this.bridgeOscillationCount < 2) {
       const goal = getCurrentGoal();
       if (goal.x !== this.x || goal.y !== this.y) {
         findBridgeForPath(goal.x, goal.y);
@@ -267,20 +266,61 @@ export class Human {
       if (this.bridgePhase === 'to_entry') {
         this.moveToTarget(this.bridgeTarget.entry.x, this.bridgeTarget.entry.y);
         const distE = Math.hypot(this.x - this.bridgeTarget.entry.x, this.y - this.bridgeTarget.entry.y);
-        if (distE < 10) this.bridgePhase = 'crossing'; // Reduced to ensure they step fully onto the start
-      } else if (this.bridgePhase === 'crossing') {
-        this.moveToTarget(this.bridgeTarget.exit.x, this.bridgeTarget.exit.y);
-        const distX = Math.hypot(this.x - this.bridgeTarget.exit.x, this.y - this.bridgeTarget.exit.y);
         
-        // FIX: Require them to actually reach the end of the bridge (dist < 5 instead of 15)
-        if (distX < 5) {
+        // When they get close to the entry, trigger the flight mechanic
+        if (distE < 2) {
+          this.bridgePhase = 'flying';
+          this.flyingProgress = 0;
+        }
+      } else if (this.bridgePhase === 'flying') {
+        // MANUALLY FLY TO EXIT
+        const dx = this.bridgeTarget.exit.x - this.x;
+        const dy = this.bridgeTarget.exit.y - this.y;
+        const dist = Math.hypot(dx, dy);
+        this.flyingProgress = Math.min(1, this.flyingProgress + 0.04);
+        
+        if (dist < 1) {
+          // We landed
+          this.x = this.bridgeTarget.exit.x;
+          this.y = this.bridgeTarget.exit.y;
+          
+          // FIX: Track bridge crossing for oscillation detection
+          const currentTime = Date.now();
+          if (currentTime - this.lastBridgeCrossingTime < 5000) {
+            this.bridgeOscillationCount++;
+          } else {
+            this.bridgeOscillationCount = 0;
+          }
+          this.lastBridgeCrossingTime = currentTime;
+          
           this.bridgeTarget = null;
           this.bridgePhase = null;
+          this.flyingProgress = 0;
           
-          // FIX: Apply a 2-second cooldown so they walk safely away from the river bank
-          this.bridgeCooldown = 120; 
+          // FIX: If oscillating, force rest and clear task
+          if (this.bridgeOscillationCount >= 2) {
+            this.bridgeCooldown = 900; // 15 seconds cooldown
+            this.bridgeOscillationCount = 0;
+            this.currentTask = null;
+            this.restTimer = 450; // Force 7.5 second rest
+            this.taskTarget = null;
+            this.replantX = null;
+            this.replantY = null;
+          } else {
+            this.bridgeCooldown = 600; // Normal 10 second cooldown
+          }
           
-          if (this.currentTask) this._postBridgeTask = this.currentTask;
+          if (this._postBridgeTask) {
+            this.currentTask = this._postBridgeTask;
+            this._postBridgeTask = null;
+          }
+        } else {
+          const flySpeed = this.maxSpeed;
+          this.vx = (dx / dist) * flySpeed;
+          this.vy = (dy / dist) * flySpeed;
+          this.x += this.vx;
+          this.y += this.vy;
+          return; 
         }
       }
     } else if (this._postBridgeTask) {
@@ -296,7 +336,31 @@ export class Human {
             this.vx = 0; this.vy = 0;
             this.taskTimer--;
             if (this.taskTimer <= 0) {
-              if (addTreeCallback) addTreeCallback(this.replantX, this.replantY);
+              const WATER_BUFFER = 20;
+              let canPlant = true;
+              if (waterCheckFn) {
+                // Check target itself
+                if (waterCheckFn(this.replantX, this.replantY)) {
+                  canPlant = false;
+                }
+                
+                // Check buffer zone
+                if (canPlant) {
+                  const checkPoints = [
+                    { x: this.replantX - WATER_BUFFER, y: this.replantY },
+                    { x: this.replantX + WATER_BUFFER, y: this.replantY },
+                    { x: this.replantX, y: this.replantY - WATER_BUFFER },
+                    { x: this.replantX, y: this.replantY + WATER_BUFFER }
+                  ];
+                  for (const point of checkPoints) {
+                    if (waterCheckFn(point.x, point.y)) {
+                      canPlant = false;
+                      break;
+                    }
+                  }
+                }
+              }
+              if (canPlant && addTreeCallback) addTreeCallback(this.replantX, this.replantY);
               this.currentTask = null;
               this.replantX = null;
               this.replantY = null;
@@ -414,7 +478,7 @@ export class Human {
     }
     
     // FINAL WATER CHECK
-    if (waterCheckFn && waterCheckFn(this.x, this.y)) {
+    if (this.bridgePhase !== 'flying' && this.bridgeCooldown <= 0 && waterCheckFn && waterCheckFn(this.x, this.y)) {
       const pushStrength = 3;
       const angles = [0, Math.PI/4, Math.PI/2, 3*Math.PI/4, Math.PI, -Math.PI/4, -Math.PI/2, -3*Math.PI/4];
       for (const angle of angles) {

@@ -64,8 +64,7 @@ const checkWaterBody = (x, y, lakes, rivers, bridges) => {
       const lx = dx * cos - dy * sin;
       const ly = dx * sin + dy * cos;
       
-      // FIX: Increased from 32 to 42 so entry/exit points (at 36 units) are not labeled as water
-      if (Math.abs(lx) <= 42 && Math.abs(ly) <= 18) return false; 
+      if (Math.abs(lx) <= 42 && Math.abs(ly) <= 42) return false; 
     }
     return true;
   }
@@ -175,10 +174,12 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
   for (const b of bridges) {
     if (!b || typeof b.x !== 'number' || typeof b.y !== 'number' || typeof b.angle !== 'number') continue;
 
-    const cos = Math.cos(b.angle);
-    const sin = Math.sin(b.angle);
-    const halfLen = 30; // Updated to match new bridge size
-    const treeSize = 6; // 1 tree size from the bridge edge
+    // FIX: Shift angle by 90 degrees to get bank-to-bank nodes (sides b to d)
+    const crossAngle = b.angle + Math.PI / 2;
+    const cos = Math.cos(crossAngle);
+    const sin = Math.sin(crossAngle);
+    const halfLen = 30; 
+    const treeSize = 2; 
 
     const end1 = { x: b.x + cos * (halfLen + treeSize), y: b.y + sin * (halfLen + treeSize) };
     const end2 = { x: b.x - cos * (halfLen + treeSize), y: b.y - sin * (halfLen + treeSize) };
@@ -514,6 +515,30 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
           if (member.leaderScore > leader.leaderScore) leader = member;
         }
         leader.isLeader = true;
+        const WATER_BUFFER = 30;
+        let nearWater = false;
+        const checkAngles = [0, 0.785, 1.571, 2.356, 3.142, 3.927, 4.712, 5.498];
+        for (const angle of checkAngles) {
+          const cx = leader.x + Math.cos(angle) * WATER_BUFFER;
+          const cy = leader.y + Math.sin(angle) * WATER_BUFFER;
+          if (checkWaterBody(cx, cy, lakes, rivers, bridges)) {
+            nearWater = true;
+            break;
+          }
+        }
+        // Also check center
+        if (!nearWater && checkWaterBody(leader.x, leader.y, lakes, rivers, bridges)) {
+          nearWater = true;
+        }
+
+        // If near water, UNDO the community assignment and skip
+        if (nearWater) {
+          for (let member of nearbyHumans) {
+            member.communityId = null;
+            member.isLeader = false;
+          }
+          continue;
+        }
 
         const newBase = new Base(newCommunityId, leader.x, leader.y, nearbyHumans.length);
         newBase.resources = { wood: 0, stone: 0, copper: 0, wood_tools: 0, stone_tools: 0, copper_tools: 0 };
@@ -545,6 +570,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
           human.maxTaskTimer = 180;
 
           let rx, ry, valid, attempts = 0;
+          const WATER_BUFFER = 25;
           do {
             const angle = Math.random() * Math.PI * 2;
             const dist = 60 + Math.random() * 80;
@@ -552,7 +578,48 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
             ry = myBase.y + Math.sin(angle) * dist;
 
             valid = true;
-            if (rx < 10 || rx > FIELD_SIZE - 10 || ry < 10 || ry > FIELD_SIZE - 10 || (valid && checkWaterBody(rx, ry, lakes, rivers, []))) valid = false;
+            if (rx < 10 || rx > FIELD_SIZE - 10 || ry < 10 || ry > FIELD_SIZE - 10) {
+              valid = false;
+              continue;
+            }
+            // FIX: Check if target is IN water
+            if (checkWaterBody(rx, ry, lakes, rivers, [])) {
+              valid = false;
+              continue;
+            }
+            const bufferCheckPoints = [
+              { x: rx - WATER_BUFFER, y: ry },
+              { x: rx + WATER_BUFFER, y: ry },
+              { x: rx, y: ry - WATER_BUFFER },
+              { x: rx, y: ry + WATER_BUFFER },
+              { x: rx - WATER_BUFFER * 0.7, y: ry - WATER_BUFFER * 0.7 },
+              { x: rx + WATER_BUFFER * 0.7, y: ry - WATER_BUFFER * 0.7 },
+              { x: rx - WATER_BUFFER * 0.7, y: ry + WATER_BUFFER * 0.7 },
+              { x: rx + WATER_BUFFER * 0.7, y: ry + WATER_BUFFER * 0.7 }
+            ];
+            
+            for (const point of bufferCheckPoints) {
+              if (checkWaterBody(point.x, point.y, lakes, rivers, [])) {
+                valid = false;
+                break;
+              }
+            }
+            
+            if (!valid) continue;
+            // FIX: Check that path from VILLAGER to target doesn't cross water
+            if (valid) {
+              const steps = 15;
+              for (let s = 1; s < steps; s++) {
+                const t = s / steps;
+                const checkX = human.x + (rx - human.x) * t;
+                const checkY = human.y + (ry - human.y) * t;
+                if (checkWaterBody(checkX, checkY, lakes, rivers, bridges)) {
+                  valid = false;
+                  break;
+                }
+              }
+            }
+            
             if (valid) {
               for (let r of currentResources) {
                 if (r.type === 'tree') {
@@ -564,9 +631,15 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
             attempts++;
           } while (!valid && attempts < 50);
 
-          human.replantX = rx;
-          human.replantY = ry;
-          myBase.replantedThisPeriod++;
+          // FIX: If no valid spot found, don't assign the task
+          if (valid && attempts < 50) {
+            human.replantX = rx;
+            human.replantY = ry;
+            myBase.replantedThisPeriod++;
+          } else {
+            human.currentTask = null;
+            human.restTimer = 300;
+          }
           return;
         }
      
@@ -675,6 +748,31 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
               currentResources.forEach(node => {
                 if (node.minerId !== null && node.minerId !== human.id) return;
                 if (node.type !== targetType) return;
+                const RESOURCE_WATER_BUFFER = 25;
+                const isNearWater = checkWaterBody(node.x, node.y, lakes, rivers, []) ||
+                  checkWaterBody(node.x - RESOURCE_WATER_BUFFER, node.y, lakes, rivers, []) ||
+                  checkWaterBody(node.x + RESOURCE_WATER_BUFFER, node.y, lakes, rivers, []) ||
+                  checkWaterBody(node.x, node.y - RESOURCE_WATER_BUFFER, lakes, rivers, []) ||
+                  checkWaterBody(node.x, node.y + RESOURCE_WATER_BUFFER, lakes, rivers, []);
+                if (isNearWater) {
+                  // Check if it's specifically on a bridge
+                  let onBridge = false;
+                  for (const b of bridges) {
+                    const dx = node.x - b.x;
+                    const dy = node.y - b.y;
+                    const cos = Math.cos(-b.angle);
+                    const sin = Math.sin(-b.angle);
+                    const lx = dx * cos - dy * sin;
+                    const ly = dx * sin + dy * cos;
+                    if (Math.abs(lx) <= 42 && Math.abs(ly) <= 42) {
+                      onBridge = true;
+                      break;
+                    }
+                  }
+                  // Only skip if near water but NOT on a bridge
+                  if (!onBridge) return;
+                }
+                
                 const d = Math.sqrt(Math.pow(human.x - node.x, 2) + Math.pow(human.y - node.y, 2));
                 if (d < minDist) { minDist = d; nearestNode = node; }
               });
@@ -755,44 +853,53 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
 
       const waterCheck = (x, y) => checkWaterBody(x, y, lakes, rivers, bridges);
       const formattedBridges = bridges.map(b => {
-        const cos = Math.cos(b.angle);
-        const sin = Math.sin(b.angle);
-        const halfLen = 30;
-        const treeSize = 6;
-        return {
-          x: b.x,
-          y: b.y,
-          angle: b.angle,
-          entry: { x: b.x + cos * (halfLen + treeSize), y: b.y + sin * (halfLen + treeSize) },
-          exit: { x: b.x - cos * (halfLen + treeSize), y: b.y - sin * (halfLen + treeSize) }
-        };
-      });
+      const crossAngle = b.angle + Math.PI / 2;
+      const cos = Math.cos(crossAngle);
+      const sin = Math.sin(crossAngle);
+      const halfLen = 30;
+      const treeSize = 6;
+      return {
+        x: b.x,
+        y: b.y,
+        angle: b.angle, // Keep original river angle for structural rendering
+        entry: { x: b.x + cos * (halfLen + treeSize), y: b.y + sin * (halfLen + treeSize) },
+        exit: { x: b.x - cos * (halfLen + treeSize), y: b.y - sin * (halfLen + treeSize) }
+      };
+    });
 
 
       currentHumans.forEach(human => {
         const myBase = currentBases.find(b => b.id === human.communityId);
         const leaderHuman = currentHumans.find(h => h.communityId === human.communityId && h.isLeader);
-
+        
         const waterCheck = (x, y) => checkWaterBody(x, y, lakes, rivers, bridges);
-
-        // Convert bridges to {entry, exit} format expected by Human.js
+      
+        // Convert bridges to {entry, exit} format, rotating 90 degrees to point to the dry land banks
         const formattedBridges = bridges.map(b => {
-          const cos = Math.cos(b.angle);
-          const sin = Math.sin(b.angle);
+          const crossAngle = b.angle + Math.PI / 2;
+          const cos = Math.cos(crossAngle);
+          const sin = Math.sin(crossAngle);
           const halfLen = 30;
           const treeSize = 6;
           return {
-            x: b.x, y: b.y, angle: b.angle,
+            x: b.x,
+            y: b.y,
+            angle: b.angle,
             entry: { x: b.x + cos * (halfLen + treeSize), y: b.y + sin * (halfLen + treeSize) },
             exit: { x: b.x - cos * (halfLen + treeSize), y: b.y - sin * (halfLen + treeSize) }
           };
         });
 
+        // Let Human.js natively handle all bridge finding and collision logic
         human.update(FIELD_SIZE, currentHumans, myBase, leaderHuman, currentResources, (tx, ty) => {
-        resourcesRef.current.push({ id: Date.now() + Math.random(), type: 'tree', amount: 5, x: tx, y: ty, minerId: null, isSelected: false });}, 
-        waterCheck, formattedBridges);
+          resourcesRef.current.push({
+            id: Date.now() + Math.random(), type: 'tree', amount: 5, x: tx, y: ty, minerId: null, isSelected: false
+          });
+        }, waterCheck, formattedBridges);
+
         human.draw(ctx, myBase);
-        if (human.isSelected) selectedHuman = human;});
+        if (human.isSelected) selectedHuman = human;
+      });
 
 
       let selectedResource = null;
