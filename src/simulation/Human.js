@@ -8,7 +8,9 @@ export class Human {
     this.gender = Math.random() > 0.5 ? 'male' : 'female';
     this.reproductionCooldown = 1800; // 30s at 60fps
     this.childrenCount = 0; 
-
+    this.failedTaskAttempts = 0;
+    this.bridgeTarget = null;
+    this.bridgePhase = null;
     this.parents = parents;
     this.isRoyal = false;
 
@@ -58,7 +60,7 @@ export class Human {
     this.maxSpeed = 1.5;
   }
 
-  update(fieldSize, allHumans, myBase, leaderHuman, resourcesList, addTreeCallback) {
+    update(fieldSize, allHumans, myBase, leaderHuman, resourcesList, addTreeCallback, waterCheckFn) {
     if (this.reproductionCooldown > 0) this.reproductionCooldown--;
 
     // Update status string
@@ -93,9 +95,53 @@ export class Human {
       }
     }
 
+    // --- Water avoidance steering ---
+    if (waterCheckFn && this.bridgePhase !== 'crossing') {
+      const lookAhead = 8;
+      const checkX = this.x + this.vx * lookAhead;
+      const checkY = this.y + this.vy * lookAhead;
+      
+      if (waterCheckFn(checkX, checkY)) {
+        const leftX = this.x + this.vy * lookAhead;
+        const leftY = this.y - this.vx * lookAhead;
+        const rightX = this.x - this.vy * lookAhead;
+        const rightY = this.y + this.vx * lookAhead;
+
+        if (!waterCheckFn(leftX, leftY)) {
+          const newVx = this.vy;
+          const newVy = -this.vx;
+          this.vx = newVx;
+          this.vy = newVy;
+        } else if (!waterCheckFn(rightX, rightY)) {
+          const newVx = -this.vy;
+          const newVy = this.vx;
+          this.vx = newVx;
+          this.vy = newVy;
+        } else {
+          this.vx = -this.vx;
+          this.vy = -this.vy;
+        }
+      }
+    }
+
+    // --- Bridge crossing state machine ---
     if (this.bridgeTarget) {
-      // Если идем к мосту — приоритет на движение к нему
-      this.moveToTarget(this.bridgeTarget.x, this.bridgeTarget.y);
+      if (!this.bridgePhase) this.bridgePhase = 'to_entry';
+      
+      if (this.bridgePhase === 'to_entry') {
+        this.moveToTarget(this.bridgeTarget.entry.x, this.bridgeTarget.entry.y);
+        const distE = Math.hypot(this.x - this.bridgeTarget.entry.x, this.y - this.bridgeTarget.entry.y);
+        if (distE < 4) {
+          this.bridgePhase = 'crossing';
+        }
+      } else if (this.bridgePhase === 'crossing') {
+        this.moveToTarget(this.bridgeTarget.exit.x, this.bridgeTarget.exit.y);
+        const distX = Math.hypot(this.x - this.bridgeTarget.exit.x, this.y - this.bridgeTarget.exit.y);
+        if (distX < 4) {
+          this.bridgeTarget = null;
+          this.bridgePhase = null;
+        }
+      }
     } else if (this.communityId && !this.isLeader) {
       // Replanting Task execution
       if (this.currentTask === 'replanting' && this.replantX) {

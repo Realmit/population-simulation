@@ -63,8 +63,7 @@ const checkWaterBody = (x, y, lakes, rivers, bridges) => {
       const sin = Math.sin(-b.angle);
       const lx = dx * cos - dy * sin;
       const ly = dx * sin + dy * cos;
-      
-      if (Math.abs(lx) <= 28 && Math.abs(ly) <= 16) return false;
+      if (Math.abs(lx) <= 32 && Math.abs(ly) <= 18) return false;
     }
     return true;
   }
@@ -81,7 +80,11 @@ export default function SimulationCanvas({ initialPopulation }) {
   const [errorMessage, setErrorMessage] = useState(null);
 
   // Рефы для водоемов (чтобы использовать в кнопке Spawn Human)
-  const waterRef = useRef({ lakes: [], rivers: [], bridges: [] });
+    const waterRef = useRef({ lakes: [], rivers: [], bridges: [] });
+
+    // Water banks generation toggle
+    const [waterBanksChecked, setWaterBanksChecked] = useState(true);
+    const generateWaterRef = useRef(true);
 
   // Zoom and Pan Refs
   const zoomRef = useRef(1.0);
@@ -149,37 +152,50 @@ export default function SimulationCanvas({ initialPopulation }) {
     panRef.current = { x: 0, y: 0 };
   };
   
-  const handleRestartSimulation = () => {
+    const handleRestartSimulation = () => {
     if (popInput < 1 || popInput > 500 || isNaN(popInput)) {
       setErrorMessage("Initial population must be between 1 and 500.");
       return;
     }
+    generateWaterRef.current = waterBanksChecked;
     setSimPopulation(popInput);
     setRestartToken(t => t + 1);
     handleResetCamera();
   };
-  // ... existing code ...
 
 function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
-  if (!bridges || !Array.isArray(bridges) || bridges.length === 0) return null;
-  if (typeof hx !== 'number' || typeof hy !== 'number') return null;
+  if (!bridges || !Array.isArray(bridges) || bridges.length === 0 
+  || typeof hx !== 'number' || typeof hy !== 'number')  return null;
 
   let best = null;
   let bestScore = Infinity;
 
   for (const b of bridges) {
-    if (!b || typeof b.x !== 'number' || typeof b.y !== 'number') continue;
+    if (!b || typeof b.x !== 'number' || typeof b.y !== 'number' || typeof b.angle !== 'number') continue;
 
-    const mx = (b.x + (b.x2 ?? b.x)) / 2;
-    const my = (b.y + (b.y2 ?? b.y)) / 2;
+    const cos = Math.cos(b.angle);
+    const sin = Math.sin(b.angle);
+    const halfLen = 30; // Updated to match new bridge size
+    const treeSize = 6; // 1 tree size from the bridge edge
 
-    const dHuman = Math.hypot(mx - hx, my - hy);
-    const dTarget = Math.hypot(mx - tx, my - ty);
-    const score = dHuman + dTarget * 0.5;
+    const end1 = { x: b.x + cos * (halfLen + treeSize), y: b.y + sin * (halfLen + treeSize) };
+    const end2 = { x: b.x - cos * (halfLen + treeSize), y: b.y - sin * (halfLen + treeSize) };
 
-    if (score < bestScore) {
-      bestScore = score;
-      best = { x: mx, y: my };
+    const dH1 = Math.hypot(end1.x - hx, end1.y - hy);
+    const dT1 = Math.hypot(end1.x - tx, end1.y - ty);
+    const score1 = dH1 + dT1 * 0.5;
+
+    const dH2 = Math.hypot(end2.x - hx, end2.y - hy);
+    const dT2 = Math.hypot(end2.x - tx, end2.y - ty);
+    const score2 = dH2 + dT2 * 0.5;
+
+    if (score1 < bestScore) {
+      bestScore = score1;
+      best = { entry: end1, exit: end2 };
+    }
+    if (score2 < bestScore) {
+      bestScore = score2;
+      best = { entry: end2, exit: end1 };
     }
   }
 
@@ -193,123 +209,120 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
     const isSafeSpawn = (x, y) => {
       return !checkWaterBody(x, y, waterRef.current.lakes, waterRef.current.rivers, []);
     };
+    const generateWater = generateWaterRef.current;
 
-    // --- Генерация Рек ---
-    const rivers = [];
-    for (let i = 0; i < 2; i++) {
-      const edge = Math.floor(Math.random() * 4);
-      let x, y, tx, ty;
-      if (edge === 0) { x = Math.random() * FIELD_SIZE; y = 0; tx = Math.random() * FIELD_SIZE; ty = FIELD_SIZE; }
-      else if (edge === 1) { x = FIELD_SIZE; y = Math.random() * FIELD_SIZE; tx = 0; ty = Math.random() * FIELD_SIZE; }
-      else if (edge === 2) { x = Math.random() * FIELD_SIZE; y = FIELD_SIZE; tx = Math.random() * FIELD_SIZE; ty = 0; }
-      else { x = 0; y = Math.random() * FIELD_SIZE; tx = FIELD_SIZE; ty = Math.random() * FIELD_SIZE; }
-      
-      const points = [{x, y}];
-      const steps = 5 + Math.floor(Math.random() * 4);
-      const stepX = (tx - x) / steps;
-      const stepY = (ty - y) / steps;
-      for (let s = 1; s < steps; s++) {
-        const wobble = 100;
-        points.push({
-          x: x + stepX * s + (Math.random() - 0.5) * wobble,
-          y: y + stepY * s + (Math.random() - 0.5) * wobble
-        });
-      }
-      points.push({x: tx, y: ty});
-      const thickness = 15 + Math.random() * 10;
-      rivers.push({ points, thickness });
-    }
-
-    // --- Генерация Озер (с проверкой дистанции до рек и других озер) ---
-    const lakes = [];
-    for (let i = 0; i < 3; i++) {
-      let valid = false, attempts = 0;
-      let lx, ly, la, lb, lAngle;
-      while (!valid && attempts < 50) {
-        la = 35 + Math.random() * 70; 
-        lb = 35 + Math.random() * 70;
-        lx = 100 + Math.random() * (FIELD_SIZE - 200);
-        ly = 100 + Math.random() * (FIELD_SIZE - 200);
-        lAngle = Math.random() * Math.PI;
+    let rivers = [];
+    let lakes = [];
+    let bridges = [];
+    if (generateWater) {
+      // --- Генерация Рек ---
+      for (let i = 0; i < 2; i++) {
+        const edge = Math.floor(Math.random() * 4);
+        let x, y, tx, ty;
+        if (edge === 0) { x = Math.random() * FIELD_SIZE; y = 0; tx = Math.random() * FIELD_SIZE; ty = FIELD_SIZE; }
+        else if (edge === 1) { x = FIELD_SIZE; y = Math.random() * FIELD_SIZE; tx = 0; ty = Math.random() * FIELD_SIZE; }
+        else if (edge === 2) { x = Math.random() * FIELD_SIZE; y = FIELD_SIZE; tx = Math.random() * FIELD_SIZE; ty = 0; }
+        else { x = 0; y = Math.random() * FIELD_SIZE; tx = FIELD_SIZE; ty = Math.random() * FIELD_SIZE; }
         
-        valid = true;
-        // Проверка удаленности от рек (минимум 1 поселение ~ 35)
-        for(let riv of rivers) {
-          if(pointNearRiver(lx, ly, riv.points, riv.thickness + 70)) valid = false; 
+        const points = [{x, y}];
+        const steps = 5 + Math.floor(Math.random() * 4);
+        const stepX = (tx - x) / steps;
+        const stepY = (ty - y) / steps;
+        for (let s = 1; s < steps; s++) {
+          const wobble = 100;
+          points.push({
+            x: x + stepX * s + (Math.random() - 0.5) * wobble,
+            y: y + stepY * s + (Math.random() - 0.5) * wobble
+          });
         }
-        // Проверка удаленности от других озер
-        if(valid) {
+        points.push({x: tx, y: ty});
+        const thickness = 15 + Math.random() * 10;
+        rivers.push({ points, thickness });
+      }
+
+      // --- Генерация Озер (с проверкой дистанции до рек и других озер) ---
+      for (let i = 0; i < 3; i++) {
+        let valid = false, attempts = 0;
+        let lx, ly, la, lb, lAngle;
+        while (!valid && attempts < 50) {
+          la = 35 + Math.random() * 70; 
+          lb = 35 + Math.random() * 70;
+          lx = 100 + Math.random() * (FIELD_SIZE - 200);
+          ly = 100 + Math.random() * (FIELD_SIZE - 200);
+          lAngle = Math.random() * Math.PI;
+          
+          valid = true;
+          for(let riv of rivers) {
+            if(pointNearRiver(lx, ly, riv.points, riv.thickness + 70)) valid = false; 
+          }
+          if(valid) {
+            for(let l of lakes) {
+              const d = Math.hypot(lx - l.x, ly - l.y);
+              if (d < la + l.a + 70 || d < lb + l.b + 70) valid = false;
+            }
+          }
+          attempts++;
+        }
+        if(valid) lakes.push({ x: lx, y: ly, a: la, b: lb, angle: lAngle });
+      }
+
+      // --- Генерация Мостов (с обработкой пересечений) ---
+      for (let i = 0; i < rivers.length; i++) {
+        const riv = rivers[i];
+        const intersections = [];
+        
+        for (let j = 0; j < rivers.length; j++) {
+          if (i === j) continue;
+          const otherRiv = rivers[j];
+          for (let k = 0; k < riv.points.length - 1; k++) {
+            for (let l = 0; l < otherRiv.points.length - 1; l++) {
+              const pt = segIntersect(riv.points[k], riv.points[k+1], otherRiv.points[l], otherRiv.points[l+1]);
+              if (pt) intersections.push({ pt, segIdx: k });
+            }
+          }
+        }
+        
+        if (intersections.length > 0) {
+          intersections.forEach(({ pt, segIdx }) => {
+            if (segIdx > 0) {
+              const p1 = riv.points[segIdx - 1];
+              const p2 = riv.points[segIdx];
+              const bx = (p1.x + p2.x) / 2;
+              const by = (p1.y + p2.y) / 2;
+              if (!lakes.some(l => pointInEllipse(bx, by, l.x, l.y, l.a, l.b, l.angle))) {
+                bridges.push({ x: bx, y: by, angle: Math.atan2(p2.y - p1.y, p2.x - p1.x) });
+              }
+            }
+            if (segIdx + 2 < riv.points.length) {
+              const p1 = riv.points[segIdx + 1];
+              const p2 = riv.points[segIdx + 2];
+              const bx = (p1.x + p2.x) / 2;
+              const by = (p1.y + p2.y) / 2;
+              if (!lakes.some(l => pointInEllipse(bx, by, l.x, l.y, l.a, l.b, l.angle))) {
+                bridges.push({ x: bx, y: by, angle: Math.atan2(p2.y - p1.y, p2.x - p1.x) });
+              }
+            }
+          });
+        } else {
+          const midIndex = 1 + Math.floor(Math.random() * (riv.points.length - 2));
+          const p1 = riv.points[midIndex];
+          const p2 = riv.points[midIndex + 1];
+          const bx = (p1.x + p2.x) / 2;
+          const by = (p1.y + p2.y) / 2;
+          let validBridge = true;
           for(let l of lakes) {
-            const d = Math.hypot(lx - l.x, ly - l.y);
-            if (d < la + l.a + 70 || d < lb + l.b + 70) valid = false;
+            if (pointInEllipse(bx, by, l.x, l.y, l.a, l.b, l.angle)) validBridge = false;
           }
-        }
-        attempts++;
-      }
-      if(valid) lakes.push({ x: lx, y: ly, a: la, b: lb, angle: lAngle });
-    }
-
-    // --- Генерация Мостов (с обработкой пересечений) ---
-    const bridges = [];
-    for (let i = 0; i < rivers.length; i++) {
-      const riv = rivers[i];
-      const intersections = [];
-      
-      for (let j = 0; j < rivers.length; j++) {
-        if (i === j) continue;
-        const otherRiv = rivers[j];
-        for (let k = 0; k < riv.points.length - 1; k++) {
-          for (let l = 0; l < otherRiv.points.length - 1; l++) {
-            const pt = segIntersect(riv.points[k], riv.points[k+1], otherRiv.points[l], otherRiv.points[l+1]);
-            if (pt) intersections.push({ pt, segIdx: k });
+          for(let otherRiv of rivers) {
+            if (otherRiv === riv) continue;
+            if (pointNearRiver(bx, by, otherRiv.points, otherRiv.thickness + 5)) validBridge = false;
           }
-        }
-      }
-      
-      if (intersections.length > 0) {
-        intersections.forEach(({ pt, segIdx }) => {
-          // Мост до пересечения
-          if (segIdx > 0) {
-            const p1 = riv.points[segIdx - 1];
-            const p2 = riv.points[segIdx];
-            const bx = (p1.x + p2.x) / 2;
-            const by = (p1.y + p2.y) / 2;
-            if (!lakes.some(l => pointInEllipse(bx, by, l.x, l.y, l.a, l.b, l.angle))) {
-              bridges.push({ x: bx, y: by, angle: Math.atan2(p2.y - p1.y, p2.x - p1.x) });
-            }
+          if(validBridge) {
+            bridges.push({ x: bx, y: by, angle: Math.atan2(p2.y-p1.y, p2.x-p1.x) });
           }
-          // Мост после пересечения
-          if (segIdx + 2 < riv.points.length) {
-            const p1 = riv.points[segIdx + 1];
-            const p2 = riv.points[segIdx + 2];
-            const bx = (p1.x + p2.x) / 2;
-            const by = (p1.y + p2.y) / 2;
-            if (!lakes.some(l => pointInEllipse(bx, by, l.x, l.y, l.a, l.b, l.angle))) {
-              bridges.push({ x: bx, y: by, angle: Math.atan2(p2.y - p1.y, p2.x - p1.x) });
-            }
-          }
-        });
-      } else {
-        // Если пересечений нет, ставим 1 мост в случайном месте
-        const midIndex = 1 + Math.floor(Math.random() * (riv.points.length - 2));
-        const p1 = riv.points[midIndex];
-        const p2 = riv.points[midIndex + 1];
-        const bx = (p1.x + p2.x) / 2;
-        const by = (p1.y + p2.y) / 2;
-        let validBridge = true;
-        for(let l of lakes) {
-          if (pointInEllipse(bx, by, l.x, l.y, l.a, l.b, l.angle)) validBridge = false;
-        }
-        for(let otherRiv of rivers) {
-          if (otherRiv === riv) continue;
-          if (pointNearRiver(bx, by, otherRiv.points, otherRiv.thickness + 5)) validBridge = false;
-        }
-        if(validBridge) {
-          bridges.push({ x: bx, y: by, angle: Math.atan2(p2.y-p1.y, p2.x-p1.x) });
         }
       }
     }
-
     // Сохраняем воду в реф для использования в кнопках
     waterRef.current = { lakes, rivers, bridges };
 
@@ -615,6 +628,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
 
             if (toolUpgradeAction) {
               toolUpgradeAction();
+              human.failedTaskAttempts = 0;  
               return;
             }
 
@@ -664,6 +678,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
               });
 
               if (nearestNode) {
+                human.failedTaskAttempts = 0; 
                 nearestNode.minerId = human.id;
                 human.taskTarget = nearestNode;
                 human.currentTask = 'gathering';
@@ -684,11 +699,13 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
                 human.maxTaskTimer = human.taskTimer;
               } else {
                 human.currentTask = null;
-                human.restTimer = 300;
+                human.failedTaskAttempts++;
+                human.restTimer = Math.min(300 * (human.failedTaskAttempts + 1), 3600);
               }
             } else {
               human.currentTask = null;
-              human.restTimer = 300;
+              human.failedTaskAttempts++;
+              human.restTimer = Math.min(300 * (human.failedTaskAttempts + 1), 3600);
             }
           }
         }
@@ -729,7 +746,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
         ctx.translate(b.x, b.y);
         ctx.rotate(b.angle);
         ctx.fillStyle = '#8D6E63';
-        ctx.fillRect(-15, -8, 30, 16);
+        ctx.fillRect(-30, -16, 60, 32);
         ctx.restore();
       });
       let selectedHuman = null;
@@ -804,7 +821,8 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
                 if (human.taskTarget) human.taskTarget.minerId = null;
                 human.currentTask = null;
                 human.taskTarget = null;
-                human.restTimer = 300;
+                human.failedTaskAttempts++;
+                human.restTimer = Math.min(300 * (human.failedTaskAttempts + 1), 3600);
                 // Bounce to wander away from the water
                 human.vx = -human.vx || (Math.random() - 0.5) * 2;
                 human.vy = -human.vy || (Math.random() - 0.5) * 2;
@@ -1181,8 +1199,8 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
           <label style={{ display: 'flex', alignItems: 'center', color: '#fff', fontSize: '0.9rem' }}>
             <input 
               type="checkbox" 
-              checked={false} 
-              onChange={() => {}} 
+              checked={waterBanksChecked} 
+              onChange={(e) => setWaterBanksChecked(e.target.checked)} 
               style={{ marginRight: '6px' }}
             />
             Generate water banks
