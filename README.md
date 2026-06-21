@@ -1,4 +1,4 @@
-# [🌍 Prehistoric Civilization Simulation](https://rus.ktonehey.ru/) <-- Click me!
+# [🌍 Prehistoric Civilization Simulation](https://rus.ktonehey.ru/) <-- Click me! (website)
 
 [**English**](README.md) | [**Русский**](READMERU.md)
 
