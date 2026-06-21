@@ -131,15 +131,19 @@ export class Human {
       if (this.bridgePhase === 'to_entry') {
         this.moveToTarget(this.bridgeTarget.entry.x, this.bridgeTarget.entry.y);
         const distE = Math.hypot(this.x - this.bridgeTarget.entry.x, this.y - this.bridgeTarget.entry.y);
-        if (distE < 4) {
+        if (distE < 6) {
           this.bridgePhase = 'crossing';
         }
       } else if (this.bridgePhase === 'crossing') {
         this.moveToTarget(this.bridgeTarget.exit.x, this.bridgeTarget.exit.y);
         const distX = Math.hypot(this.x - this.bridgeTarget.exit.x, this.y - this.bridgeTarget.exit.y);
-        if (distX < 4) {
+        if (distX < 6) {
+          // Successfully crossed!
+          this.lastBridgeX = this.bridgeTarget.exit.x;
+          this.lastBridgeY = this.bridgeTarget.exit.y;
           this.bridgeTarget = null;
           this.bridgePhase = null;
+          this.crossedBridge = true;
         }
       }
     } else if (this.communityId && !this.isLeader) {

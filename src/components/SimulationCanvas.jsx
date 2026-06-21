@@ -175,11 +175,11 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
 
     const cos = Math.cos(b.angle);
     const sin = Math.sin(b.angle);
-    const halfLen = 30; // Updated to match new bridge size
-    const treeSize = 6; // 1 tree size from the bridge edge
+    const halfLen = 15;
+    const crossSize = 6; 
 
-    const end1 = { x: b.x + cos * (halfLen + treeSize), y: b.y + sin * (halfLen + treeSize) };
-    const end2 = { x: b.x - cos * (halfLen + treeSize), y: b.y - sin * (halfLen + treeSize) };
+    const end1 = { x: b.x + cos * (halfLen + crossSize), y: b.y + sin * (halfLen + crossSize) };
+    const end2 = { x: b.x - cos * (halfLen + crossSize), y: b.y - sin * (halfLen + crossSize) };
 
     const dH1 = Math.hypot(end1.x - hx, end1.y - hy);
     const dT1 = Math.hypot(end1.x - tx, end1.y - ty);
@@ -767,8 +767,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
           const dist = Math.hypot(bx - human.x, by - human.y);
           const spd = human.speed || Math.hypot(human.vx || 0, human.vy || 0) || 1;
           if (dist < spd) {
-                      // Removed the teleport snap (human.x = bx; human.y = by;)
-                      human.crossedBridge = true;
+            human.crossedBridge = true;
             human.lastBridgeX = bx; 
             human.lastBridgeY = by;
             human.bridgeTarget = null;
@@ -834,24 +833,84 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
             }
           }
 
-        // Reset the crossed flag once we're safely away from the bridge
         if (human.crossedBridge) {
           const onSolidGround = !checkWaterBody(human.x, human.y, lakes, rivers, bridges);
           
           if (!onSolidGround) {
-            // Stepped off the bridge into water, revert position to stay on bridge
+            // Stepped off into water, revert position
             human.x = oldX;
             human.y = oldY;
           } else if (human.lastBridgeX !== undefined) {
             const distToBridge = Math.hypot(human.x - human.lastBridgeX, human.y - human.lastBridgeY);
-            // If we've safely walked away from the bridge area
-            if (distToBridge > 25) {
+            // If we've safely walked away from the bridge area, reset the flag
+            if (distToBridge > 40) {
               human.crossedBridge = false;
               human.lastBridgeX = undefined;
               human.lastBridgeY = undefined;
             }
           }
+        } else if (human.bridgeTarget) {
+          // The Human.update state machine is handling the crossing.
+          // We just prevent them from walking into water off-bridge.
+          if (checkWaterBody(human.x, human.y, lakes, rivers, bridges)) {
+            human.x = oldX;
+            human.y = oldY;
+          }
+        } else if (checkWaterBody(human.x, human.y, lakes, rivers, bridges)) {
+          human.x = oldX;
+          human.y = oldY;
+          let destX = myBase ? myBase.x : human.x;
+          let destY = myBase ? myBase.y : human.y;
+          let needsBridge = false;
+
+          if (human.currentTask === 'gathering') {
+            if (human.taskTarget && checkWaterBody(human.taskTarget.x, human.taskTarget.y, lakes, rivers, bridges)) {
+              if (human.taskTarget) human.taskTarget.minerId = null;
+              human.currentTask = null;
+              human.taskTarget = null;
+              human.restTimer = 300;
+            } else if (human.taskTarget) {
+              destX = human.taskTarget.x;
+              destY = human.taskTarget.y;
+              needsBridge = true;
+            }
+          } else if (human.currentTask === 'replanting') {
+            if (checkWaterBody(human.replantX, human.replantY, lakes, rivers, bridges)) {
+              human.currentTask = null;
+              human.restTimer = 300;
+            } else {
+              destX = human.replantX;
+              destY = human.replantY;
+              needsBridge = true;
+            }
+          } else if (human.currentTask === 'going_to_leader' && leaderHuman) {
+            destX = leaderHuman.x;
+            destY = leaderHuman.y;
+            needsBridge = true;
+          } else if (human.currentTask === 'returning') {  
+            needsBridge = true;
+          }
+
+          if (needsBridge) {
+            const bridge = findNearestBridgeTowards(human.x, human.y, destX, destY, bridges);
+            
+            if (bridge) {
+              human.bridgeTarget = bridge;
+            } else {
+              if (human.taskTarget) human.taskTarget.minerId = null;
+              human.currentTask = null;
+              human.taskTarget = null;
+              human.failedTaskAttempts++;
+              human.restTimer = Math.min(300 * (human.failedTaskAttempts + 1), 3600);
+              human.vx = -human.vx || (Math.random() - 0.5) * 2;
+              human.vy = -human.vy || (Math.random() - 0.5) * 2;
+            }
+          } else {
+            human.vx = -human.vx || (Math.random() - 0.5) * 2;
+            human.vy = -human.vy || (Math.random() - 0.5) * 2;
+          }
         }
+
         human.draw(ctx, myBase);
         if (human.isSelected) selectedHuman = human;
       });
