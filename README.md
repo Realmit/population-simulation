@@ -1,73 +1,88 @@
-# 🌍 Симуляция Доисторической Цивилизации
+# 🌍 Prehistoric Civilization Simulation
 
 [**English**](README.md) | [**Русский**](READMERU.md)
 
 ---
 
-Браузерная симуляция развития ранней человеческой цивилизации. Ваши агенты формируют сообщества, собирают ресурсы, осваивают технологии крафта и борются за выживание в мире с динамическими водоемами.
+A browser-based simulation of early human civilization development. Your agents form communities, gather resources, master crafting technologies, and struggle for survival in a world featuring dynamic water bodies.
 
 <h1 align="center">
   <img src="https://github.com/user-attachments/assets/ce3eaaf2-54eb-42f4-8918-6c11075ce199" alt="Simulation Preview" width="100%" />
 </h1>
 
-## 🚀 Основные возможности
+## 🚀 Key Features
 
-* **🏘️ Динамические сообщества:** Люди объединяются в деревни (4-6 человек), выбирают лидеров и управляют развитием.
-* **💧 Интеллектуальная водная система:** Озера и реки создают естественные преграды, которые люди преодолевают с помощью автоматически генерируемых мостов.
-* **🪓 Прогрессия инструментов:** Улучшайте эффективность труда от деревянных до медных орудий.
-* **🌱 Экосистема:** Женщины-жители активно восстанавливают лес, высаживая деревья, чтобы ресурсы никогда не заканчивались.
-* **🧬 Генетика:** Атрибуты и королевские титулы передаются по наследству[cite: 1].
+* **🏘️ Dynamic Communities:** Humans unite into villages (4-6 people), elect leaders, and manage development[cite: 1].
+* **💧 Intelligent Water System:** Lakes and rivers create natural barriers that humans overcome using automatically generated bridges[cite: 1].
+* **🪓 Tool Progression:** Improve labor efficiency from wooden to copper tools[cite: 1].
+* **🌱 Ecosystem:** Female residents actively restore the forest by planting trees to ensure renewable resources[cite: 1].
+* **🧬 Genetics:** Attributes and royal titles are passed down through generations[cite: 1].
 
 ---
 
-## 🛠️ Система крафта
+## 🛠️ Crafting System
 
 <details>
-<summary><b>Открыть таблицу характеристик инструментов</b></summary>
+<summary><b>View Tool Statistics Table</b></summary>
 
-| Уровень инструмента | Бонус к сбору | Стоимость крафта |
+| Tool Tier | Gathering Bonus | Crafting Cost |
 | :--- | :--- | :--- |
-| **Деревянные** | +40% к скорости | 4 Дерева |
-| **Каменные** | +64% Дерево, +40% Камень | 8 Дерева + 4 Камня |
-| **Медные** | +78% Дерево, +64% Камень, +40% Медь | 16 Дерева + 8 Меди |
+| **Wooden** | +40% Speed | 4 Wood |
+| **Stone** | +64% Wood, +40% Stone | 8 Wood + 4 Stone |
+| **Copper** | +78% Wood, +64% Stone, +40% Copper | 16 Wood + 8 Copper |
 
 </details>
 
 ---
 
-## 📊 Характеристики персонажей
+## 📊 Character Attributes
 
-| Атрибут | Роль |
+<details>
+<summary><b>View Character Attributes Table</b></summary>
+
+| Attribute | Role |
 | :--- | :--- |
-| **Здоровье** | Выживаемость и устойчивость к нагрузкам[cite: 1] |
-| **Сила** | Скорость и эффективность добычи[cite: 1] |
-| **Интеллект** | Скорость выполнения сложных задач[cite: 1] |
-| **Харизма** | Успех в лидерстве и создании семьи[cite: 1] |
+| **Health** | Survivability and load resistance[cite: 1] |
+| **Strength** | Speed and extraction efficiency[cite: 1] |
+| **Intelligence** | Speed of performing complex tasks[cite: 1] |
+| **Charisma** | Success in leadership and family creation[cite: 1] |
+
+</details>
 
 ---
 
-## 🎮 Управление
+## 🎮 Controls
 
-| Действие | Управление |
+<details>
+<summary><b>View Controls Table</b></summary>
+
+| Action | Control |
 | :--- | :--- |
-| **Взаимодействие** | ЛКМ (по человеку или ресурсу)[cite: 1] |
-| **Навигация** | Перетаскивание (Pan) / Колесо мыши (Zoom)[cite: 1] |
-| **Управление симуляцией** | Кнопки "Restart", "Spawn", "Reset Camera"[cite: 1] |
-| **Персонализация** | Иконки ✎ для переименования[cite: 1] |
+| **Interaction** | Left Click (on human or resource)[cite: 1] |
+| **Navigation** | Drag (Pan) / Mouse Wheel (Zoom)[cite: 1] |
+| **Simulation Control** | "Restart", "Spawn", "Reset Camera" buttons[cite: 1] |
+| **Personalization** | ✎ icons for renaming[cite: 1] |
+
+</details>
 
 ---
 
-## 🏗️ Лимиты населения
+## 🏗️ Population Limits
 
-Формула роста населения зависит от вашего технического прогресса[cite: 1]:
-* **База:** 4 человека[cite: 1]
-* **Деревянные инструменты:** +1 за инструмент (макс. 5)[cite: 1]
-* **Каменные инструменты:** +1 за инструмент (макс. 10)[cite: 1]
-* **Медные инструменты:** +1 за инструмент (без ограничений)[cite: 1]
+<details>
+<summary><b>View Population Limits Table</b></summary>
+
+Population growth depends on your technical progress[cite: 1]:
+* **Base:** 4 people[cite: 1]
+* **Wooden Tools:** +1 per tool (max 5)[cite: 1]
+* **Stone Tools:** +1 per tool (max 10)[cite: 1]
+* **Copper Tools:** +1 per tool (unlimited)[cite: 1]
+
+</details>
 
 ---
 
-## 📂 Структура проекта
+## 📂 Project Structure
 
 ```text
 src/
@@ -83,15 +98,15 @@ src/
 └── index.css
 ```
 
-## ⚙️ Технологии
+## ⚙️ Technologies
 
 - React 18
 - JavaScript (ES6)
 - HTML5 Canvas для рендеринга
 - Vite для сервера разработки
 
-## 📝 Лицензия
+## 📝 License
 
 MIT
 
-Не стесняйтесь модифицировать и расширять эту симуляцию! Основные системы разработаны для расширения дополнительными механиками, такими как торговля, конфликты или технологические достижения.
+Feel free to modify and expand this simulation! The core systems are designed to be extended with additional mechanics such as trade, conflicts, or technological advancements.
