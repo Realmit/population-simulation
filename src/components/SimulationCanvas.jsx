@@ -880,7 +880,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
           const cos = Math.cos(crossAngle);
           const sin = Math.sin(crossAngle);
           const halfLen = 30;
-          const treeSize = 6;
+          const treeSize = 2;
           return {
             x: b.x,
             y: b.y,
