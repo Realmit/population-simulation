@@ -60,7 +60,7 @@ export class Human {
     this.maxSpeed = 1.5;
   }
 
-    update(fieldSize, allHumans, myBase, leaderHuman, resourcesList, addTreeCallback, waterCheckFn) {
+    update(fieldSize, allHumans, myBase, leaderHuman, resourcesList, addTreeCallback, waterCheckFn, allBridges) {
     if (this.reproductionCooldown > 0) this.reproductionCooldown--;
 
     // Update status string
@@ -94,14 +94,34 @@ export class Human {
         }
       }
     }
-
     // --- Water avoidance steering ---
-    if (waterCheckFn && this.bridgePhase !== 'crossing') {
+    if (waterCheckFn && this.bridgePhase !== 'crossing' && !this.bridgeTarget) {
+      if (!this.bridgeTarget) {
+        const bridge = findNearestBridgeTowards(this.x, this.y, targetX, targetY, allBridges);
+      if (bridge) {
+        this.bridgeTarget = bridge;
+        this.bridgePhase = 'to_entry';
+      }
+    }
       const lookAhead = 8;
       const checkX = this.x + this.vx * lookAhead;
       const checkY = this.y + this.vy * lookAhead;
       
       if (waterCheckFn(checkX, checkY)) {
+        if (!this.bridgeTarget && this.taskTarget) {
+        // Use the current task's coordinates as the destination
+        const bridge = findNearestBridgeTowards(
+            this.x, this.y, 
+            this.taskTarget.x, this.taskTarget.y, 
+            allBridges
+        );
+        
+        if (bridge) {
+            this.bridgeTarget = bridge;
+            this.bridgePhase = 'to_entry';
+            return; // Exit early: we have a mission, stop wandering/bouncing!
+        }
+        }
         const leftX = this.x + this.vy * lookAhead;
         const leftY = this.y - this.vx * lookAhead;
         const rightX = this.x - this.vy * lookAhead;
@@ -118,6 +138,14 @@ export class Human {
           this.vx = newVx;
           this.vy = newVy;
         } else {
+          if (!this.bridgeTarget) {
+            const bridge = findNearestBridgeTowards(this.x, this.y, this.targetX, this.targetY, allBridges);
+            if (bridge) {
+              this.bridgeTarget = bridge;
+              this.bridgePhase = 'to_entry';
+              return; // Stop the bounce and start crossing
+            }
+          }
           this.vx = -this.vx;
           this.vy = -this.vy;
         }
@@ -131,13 +159,13 @@ export class Human {
       if (this.bridgePhase === 'to_entry') {
         this.moveToTarget(this.bridgeTarget.entry.x, this.bridgeTarget.entry.y);
         const distE = Math.hypot(this.x - this.bridgeTarget.entry.x, this.y - this.bridgeTarget.entry.y);
-        if (distE < 4) {
+        if (distE < 15) {
           this.bridgePhase = 'crossing';
         }
       } else if (this.bridgePhase === 'crossing') {
         this.moveToTarget(this.bridgeTarget.exit.x, this.bridgeTarget.exit.y);
         const distX = Math.hypot(this.x - this.bridgeTarget.exit.x, this.y - this.bridgeTarget.exit.y);
-        if (distX < 4) {
+        if (distX < 15) {
           this.bridgeTarget = null;
           this.bridgePhase = null;
         }
