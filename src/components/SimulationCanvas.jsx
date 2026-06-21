@@ -64,7 +64,7 @@ const checkWaterBody = (x, y, lakes, rivers, bridges) => {
       const lx = dx * cos - dy * sin;
       const ly = dx * sin + dy * cos;
       
-      if (Math.abs(lx) <= 22 && Math.abs(ly) <= 12) return false;
+      if (Math.abs(lx) <= 28 && Math.abs(ly) <= 16) return false;
     }
     return true;
   }
@@ -750,9 +750,8 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
           const dist = Math.hypot(bx - human.x, by - human.y);
           const spd = human.speed || Math.hypot(human.vx || 0, human.vy || 0) || 1;
           if (dist < spd) {
-            human.x = bx;
-            human.y = by;
-            human.crossedBridge = true;
+                      // Removed the teleport snap (human.x = bx; human.y = by;)
+                      human.crossedBridge = true;
             human.lastBridgeX = bx; 
             human.lastBridgeY = by;
             human.bridgeTarget = null;
@@ -1179,9 +1178,18 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
           >
             Reset Camera View
           </button>
+          <label style={{ display: 'flex', alignItems: 'center', color: '#fff', fontSize: '0.9rem' }}>
+            <input 
+              type="checkbox" 
+              checked={false} 
+              onChange={() => {}} 
+              style={{ marginRight: '6px' }}
+            />
+            Generate water banks
+          </label>
         </div>
       </div>
-
+      
       {/* Middle Column: Simulation Stats */}
       <div style={{ 
         flex: '1 1 25%', backgroundColor: '#2a2a2a', padding: '20px', 
@@ -1382,3 +1390,4 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
     </div>
   );
 }
+

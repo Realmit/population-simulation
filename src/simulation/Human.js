@@ -61,7 +61,7 @@ export class Human {
   update(fieldSize, allHumans, myBase, leaderHuman, resourcesList, addTreeCallback) {
     if (this.reproductionCooldown > 0) this.reproductionCooldown--;
 
-    // Update Status tracking strings
+    // Update status string
     if (this.currentTask === 'seeking_mate') {
       this.status = "Seeking Mate";
     } else if (this.isLeader) {
@@ -78,8 +78,7 @@ export class Human {
     }
 
     if (this.isSelected) { this.vx = 0; this.vy = 0; return; }
-    if (!this.bridgeTarget) {
-    // Collision Avoidance
+
     if (resourcesList) {
       for (let res of resourcesList) {
         if (res.type === 'stick') continue; 
@@ -94,7 +93,10 @@ export class Human {
       }
     }
 
-    if (this.communityId && !this.isLeader) {
+    if (this.bridgeTarget) {
+      // Если идем к мосту — приоритет на движение к нему
+      this.moveToTarget(this.bridgeTarget.x, this.bridgeTarget.y);
+    } else if (this.communityId && !this.isLeader) {
       // Replanting Task execution
       if (this.currentTask === 'replanting' && this.replantX) {
         this.moveToTarget(this.replantX, this.replantY);
@@ -146,33 +148,6 @@ export class Human {
           if (this.taskTimer <= 0) {
             if (myBase && myBase.resources) {
               if (this.taskTarget.type === 'stick' || this.taskTarget.type === 'tree') myBase.resources.wood += 1;
-            const pointInEllipse = (px, py, cx, cy, a, b, angle) => {
-              const dx = px - cx;
-              const dy = py - cy;
-              const cos = Math.cos(angle);
-              const sin = Math.sin(angle);
-              const r1 = (dx * cos + dy * sin) / a;
-              const r2 = (-dx * sin + dy * cos) / b;
-              return r1 * r1 + r2 * r2 <= 1.2; // slightly larger for clearance
-            };
-
-            const distToSegment = (px, py, x1, y1, x2, y2) => {
-              const dx = x2 - x1;
-              const dy = y2 - y1;
-              if (dx === 0 && dy === 0) return Math.hypot(px - x1, py - y1);
-              const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)));
-              const cx = x1 + t * dx;
-              const cy = y1 + t * dy;
-              return Math.hypot(px - cx, py - cy);
-            };
-
-            const pointNearRiver = (px, py, points, thickness) => {
-              for (let i = 0; i < points.length - 1; i++) {
-                const d = distToSegment(px, py, points[i].x, points[i].y, points[i+1].x, points[i+1].y);
-                if (d <= thickness / 2 + 4) return true; // +4 for clearance
-              }
-              return false;
-            };
               if (this.taskTarget.type === 'stone_vein') myBase.resources.stone += 1;
               if (this.taskTarget.type === 'copper_vein') myBase.resources.copper += 1;
             }
@@ -187,10 +162,7 @@ export class Human {
       const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
       if (speed > this.maxSpeed) { this.vx = (this.vx / speed) * this.maxSpeed; this.vy = (this.vy / speed) * this.maxSpeed; }
     }
-  }
-  if (this.bridgeTarget) {
-      this.moveToTarget(this.bridgeTarget.x, this.bridgeTarget.y);
-    }
+
     // ОБЩЕЕ ПЕРЕМЕЩЕНИЕ (теперь применяется и для задач, и для бродяжничества):
     const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
     if (speed > this.maxSpeed) {
@@ -235,6 +207,12 @@ export class Human {
     if (speed > 0.5) {
       this.vx = (this.vx / speed) * 0.5;
       this.vy = (this.vy / speed) * 0.5;
+    }
+    // If stuck (very low speed), pick a new random direction
+    if (speed < 0.1) {
+      const angle = Math.random() * Math.PI * 2;
+      this.vx = Math.cos(angle) * 0.5;
+      this.vy = Math.sin(angle) * 0.5;
     }
     this.x += this.vx;
     this.y += this.vy;
@@ -354,3 +332,4 @@ export class Human {
     }
   }
 }
+
