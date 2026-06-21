@@ -1,7 +1,7 @@
-# 🌍 Prehistoric Civilization Simulation(https://rus.ktonehey.ru/)
+# [🌍 Prehistoric Civilization Simulation](https://rus.ktonehey.ru/)
 
 <h2>
-  WEBSITE(https://rus.ktonehey.ru/)
+  [WEBSITE](https://rus.ktonehey.ru/)
 </h2>
 
 [**English**](README.md) | [**Русский**](READMERU.md)
