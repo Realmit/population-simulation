@@ -63,7 +63,9 @@ const checkWaterBody = (x, y, lakes, rivers, bridges) => {
       const sin = Math.sin(-b.angle);
       const lx = dx * cos - dy * sin;
       const ly = dx * sin + dy * cos;
-      if (Math.abs(lx) <= 32 && Math.abs(ly) <= 18) return false;
+      
+      // FIX: Increased from 32 to 42 so entry/exit points (at 36 units) are not labeled as water
+      if (Math.abs(lx) <= 42 && Math.abs(ly) <= 18) return false; 
     }
     return true;
   }
@@ -750,111 +752,47 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
         ctx.restore();
       });
       let selectedHuman = null;
+
+      const waterCheck = (x, y) => checkWaterBody(x, y, lakes, rivers, bridges);
+      const formattedBridges = bridges.map(b => {
+        const cos = Math.cos(b.angle);
+        const sin = Math.sin(b.angle);
+        const halfLen = 30;
+        const treeSize = 6;
+        return {
+          x: b.x,
+          y: b.y,
+          angle: b.angle,
+          entry: { x: b.x + cos * (halfLen + treeSize), y: b.y + sin * (halfLen + treeSize) },
+          exit: { x: b.x - cos * (halfLen + treeSize), y: b.y - sin * (halfLen + treeSize) }
+        };
+      });
+
+
       currentHumans.forEach(human => {
-        const oldX = human.x;
-        const oldY = human.y;
         const myBase = currentBases.find(b => b.id === human.communityId);
         const leaderHuman = currentHumans.find(h => h.communityId === human.communityId && h.isLeader);
-        
-        human.update(FIELD_SIZE, currentHumans, myBase, leaderHuman, currentResources, (tx, ty) => {
-          resourcesRef.current.push({
-            id: Date.now() + Math.random(), type: 'tree', amount: 5, x: tx, y: ty, minerId: null, isSelected: false
-          });
+
+        const waterCheck = (x, y) => checkWaterBody(x, y, lakes, rivers, bridges);
+
+        // Convert bridges to {entry, exit} format expected by Human.js
+        const formattedBridges = bridges.map(b => {
+          const cos = Math.cos(b.angle);
+          const sin = Math.sin(b.angle);
+          const halfLen = 30;
+          const treeSize = 6;
+          return {
+            x: b.x, y: b.y, angle: b.angle,
+            entry: { x: b.x + cos * (halfLen + treeSize), y: b.y + sin * (halfLen + treeSize) },
+            exit: { x: b.x - cos * (halfLen + treeSize), y: b.y - sin * (halfLen + treeSize) }
+          };
         });
-        if (human.bridgeTarget) {
-          const bx = human.bridgeTarget.x;
-          const by = human.bridgeTarget.y;
-          const dist = Math.hypot(bx - human.x, by - human.y);
-          const spd = human.speed || Math.hypot(human.vx || 0, human.vy || 0) || 1;
-          if (dist < spd) {
-                      // Removed the teleport snap (human.x = bx; human.y = by;)
-                      human.crossedBridge = true;
-            human.lastBridgeX = bx; 
-            human.lastBridgeY = by;
-            human.bridgeTarget = null;
-          } 
-        } else if (!human.crossedBridge && checkWaterBody(human.x, human.y, lakes, rivers, bridges)) {
-          human.x = oldX;
-          human.y = oldY;
-          let destX = myBase ? myBase.x : human.x;
-          let destY = myBase ? myBase.y : human.y;
-          let needsBridge = false;
 
-            if (human.currentTask === 'gathering') {
-              if (human.taskTarget && checkWaterBody(human.taskTarget.x, human.taskTarget.y, lakes, rivers, bridges)) {
-                if (human.taskTarget) human.taskTarget.minerId = null;
-                human.currentTask = null;
-                human.taskTarget = null;
-                human.restTimer = 300;
-              } else if (human.taskTarget) {
-                destX = human.taskTarget.x;
-                destY = human.taskTarget.y;
-                needsBridge = true;
-              }
-            } else if (human.currentTask === 'replanting') {
-              // Если точка посадки каким-то образом оказалась в воде, отменяем задачу
-              if (checkWaterBody(human.replantX, human.replantY, lakes, rivers, bridges)) {
-                human.currentTask = null;
-                human.restTimer = 300;
-              } else {
-                destX = human.replantX;
-                destY = human.replantY;
-                needsBridge = true;
-              }
-            } 
-            else if (human.currentTask === 'going_to_leader' && leaderHuman) {
-              destX = leaderHuman.x;
-              destY = leaderHuman.y;
-              needsBridge = true;
-            } else if (human.currentTask === 'returning') {  
-              needsBridge = true;
-            }
-
-            if (needsBridge) {
-              human.crossedBridge = false; 
-              const bridge = findNearestBridgeTowards(human.x, human.y, destX, destY, bridges);
-              
-              if (bridge) {
-                human.bridgeTarget = bridge;
-              } else {
-                // No bridge reachable — give up the task safely.
-                if (human.taskTarget) human.taskTarget.minerId = null;
-                human.currentTask = null;
-                human.taskTarget = null;
-                human.failedTaskAttempts++;
-                human.restTimer = Math.min(300 * (human.failedTaskAttempts + 1), 3600);
-                // Bounce to wander away from the water
-                human.vx = -human.vx || (Math.random() - 0.5) * 2;
-                human.vy = -human.vy || (Math.random() - 0.5) * 2;
-              }
-            } else {
-              // Casual wandering — just bounce off the water.
-              human.vx = -human.vx || (Math.random() - 0.5) * 2;
-              human.vy = -human.vy || (Math.random() - 0.5) * 2;
-            }
-          }
-
-        // Reset the crossed flag once we're safely away from the bridge
-        if (human.crossedBridge) {
-          const onSolidGround = !checkWaterBody(human.x, human.y, lakes, rivers, bridges);
-          
-          if (!onSolidGround) {
-            // Stepped off the bridge into water, revert position to stay on bridge
-            human.x = oldX;
-            human.y = oldY;
-          } else if (human.lastBridgeX !== undefined) {
-            const distToBridge = Math.hypot(human.x - human.lastBridgeX, human.y - human.lastBridgeY);
-            // If we've safely walked away from the bridge area
-            if (distToBridge > 25) {
-              human.crossedBridge = false;
-              human.lastBridgeX = undefined;
-              human.lastBridgeY = undefined;
-            }
-          }
-        }
+        human.update(FIELD_SIZE, currentHumans, myBase, leaderHuman, currentResources, (tx, ty) => {
+        resourcesRef.current.push({ id: Date.now() + Math.random(), type: 'tree', amount: 5, x: tx, y: ty, minerId: null, isSelected: false });}, 
+        waterCheck, formattedBridges);
         human.draw(ctx, myBase);
-        if (human.isSelected) selectedHuman = human;
-      });
+        if (human.isSelected) selectedHuman = human;});
 
 
       let selectedResource = null;

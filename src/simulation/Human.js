@@ -62,6 +62,8 @@ export class Human {
 
     update(fieldSize, allHumans, myBase, leaderHuman, resourcesList, addTreeCallback, waterCheckFn, allBridges) {
     if (this.reproductionCooldown > 0) this.reproductionCooldown--;
+    if (this.bridgeCooldown === undefined) this.bridgeCooldown = 0;
+    if (this.bridgeCooldown > 0) this.bridgeCooldown--;
 
     // Update status string
     if (this.currentTask === 'seeking_mate') {
@@ -80,7 +82,116 @@ export class Human {
     }
 
     if (this.isSelected) { this.vx = 0; this.vy = 0; return; }
+    
+    // Helper functions
+    const getCurrentGoal = () => {
+      if (this.bridgeTarget) {
+        return this.bridgePhase === 'to_entry'
+          ? this.bridgeTarget.entry
+          : this.bridgeTarget.exit;
+      }
+      if (this.taskTarget) return { x: this.taskTarget.x, y: this.taskTarget.y };
+      if (leaderHuman) return { x: leaderHuman.x, y: leaderHuman.y };
+      if (myBase) return { x: myBase.x, y: myBase.y };
+      return { x: this.x, y: this.y };
+    };
+    
+    const isPathClear = (targetX, targetY) => {
+      if (!waterCheckFn) return true;
+      if (waterCheckFn(this.x, this.y)) return false;
+      if (waterCheckFn(targetX, targetY)) return false;
+      
+      const steps = 20; // FIX: was 5, too few to detect narrow rivers
+      for (let i = 1; i < steps; i++) {
+        const t = i / steps;
+        const checkX = this.x + (targetX - this.x) * t;
+        const checkY = this.y + (targetY - this.y) * t;
+        if (waterCheckFn(checkX, checkY)) return false;
+      }
+      return true;
+    };
+    
+    const isSafePosition = (x, y) => {
+      if (!waterCheckFn) return true;
+      return !waterCheckFn(x, y);
+    };
+    
+    const getWaterAvoidanceVelocity = (targetX, targetY) => {
+      if (!waterCheckFn) return null;
+      
+      const dx = targetX - this.x;
+      const dy = targetY - this.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 1) return null;
+      
+      const dirX = dx / dist;
+      const dirY = dy / dist;
+      
+      if (isSafePosition(this.x + dirX * 15, this.y + dirY * 15)) {
+        return { x: dirX * this.maxSpeed, y: dirY * this.maxSpeed };
+      }
+      
+      const perpX = -dirY;
+      const perpY = dirX;
+      
+      const leftX = this.x + perpX * 15;
+      const leftY = this.y + perpY * 15;
+      const rightX = this.x - perpX * 15;
+      const rightY = this.y - perpY * 15;
+      
+      if (isSafePosition(leftX, leftY)) {
+        return { x: perpX * this.maxSpeed, y: perpY * this.maxSpeed };
+      }
+      if (isSafePosition(rightX, rightY)) {
+        return { x: -perpX * this.maxSpeed, y: -perpY * this.maxSpeed };
+      }
+      
+      return { x: -dirX * this.maxSpeed, y: -dirY * this.maxSpeed };
+    };
 
+    const findBridgeForPath = (targetX, targetY) => {
+      if (!waterCheckFn || !allBridges || allBridges.length === 0) return false;
+      if (waterCheckFn(this.x, this.y)) return false; // already in water, let reactive handle
+
+      // Check if direct path crosses water
+      const steps = 15;
+      let pathCrossesWater = false;
+      for (let i = 1; i < steps; i++) {
+        const t = i / steps;
+        const checkX = this.x + (targetX - this.x) * t;
+        const checkY = this.y + (targetY - this.y) * t;
+        if (waterCheckFn(checkX, checkY)) { pathCrossesWater = true; break; }
+      }
+      if (!pathCrossesWater) return false;
+
+      // Find best bridge dynamically choosing entry/exit sides
+      let closestDist = Infinity;
+      let bestBridge = null;
+      for (const b of allBridges) {
+        if (waterCheckFn(b.entry.x, b.entry.y) || waterCheckFn(b.exit.x, b.exit.y)) continue;
+        
+        // Check BOTH directions: crossing Entry->Exit OR Exit->Entry
+        const d1 = Math.hypot(this.x - b.entry.x, this.y - b.entry.y) + Math.hypot(b.exit.x - targetX, b.exit.y - targetY);
+        const d2 = Math.hypot(this.x - b.exit.x, this.y - b.exit.y) + Math.hypot(b.entry.x - targetX, b.entry.y - targetY);
+        
+        let totalDist = Math.min(d1, d2);
+        
+        if (totalDist < closestDist) {
+          closestDist = totalDist;
+          // Dynamically map entry to whichever side the human is closest to
+          bestBridge = d1 < d2 ? { entry: b.entry, exit: b.exit } : { entry: b.exit, exit: b.entry };
+        }
+      }
+
+      if (bestBridge) {
+        this.bridgeTarget = bestBridge;
+        this.bridgePhase = 'to_entry';
+        return true;
+      }
+      return false;
+    };
+
+    // Resource avoidance
     if (resourcesList) {
       for (let res of resourcesList) {
         if (res.type === 'stick') continue; 
@@ -88,123 +199,159 @@ export class Human {
         const dist = Math.sqrt(Math.pow(this.x - res.x, 2) + Math.pow(this.y - res.y, 2));
         const minDistance = this.radius + resRadius + 2;
         if (dist < minDistance && dist > 0) {
-          const overlap = minDistance - dist;
+                    const overlap = minDistance - dist;
           this.vx += ((this.x - res.x) / dist) * overlap * 0.2;
           this.vy += ((this.y - res.y) / dist) * overlap * 0.2;
         }
       }
     }
-    // --- Water avoidance steering ---
-    if (waterCheckFn && this.bridgePhase !== 'crossing' && !this.bridgeTarget) {
-      if (!this.bridgeTarget) {
-        const bridge = findNearestBridgeTowards(this.x, this.y, targetX, targetY, allBridges);
-      if (bridge) {
-        this.bridgeTarget = bridge;
-        this.bridgePhase = 'to_entry';
-      }
-    }
-      const lookAhead = 8;
+    
+    // --- Water avoidance logic ---
+    // --- Water avoidance logic ---
+    if (waterCheckFn && !this.bridgeTarget && this.bridgePhase !== 'crossing') {
+      const lookAhead = 15;
       const checkX = this.x + this.vx * lookAhead;
       const checkY = this.y + this.vy * lookAhead;
       
-      if (waterCheckFn(checkX, checkY)) {
-        if (!this.bridgeTarget && this.taskTarget) {
-        // Use the current task's coordinates as the destination
-        const bridge = findNearestBridgeTowards(
-            this.x, this.y, 
-            this.taskTarget.x, this.taskTarget.y, 
-            allBridges
-        );
+      const inWaterNow = waterCheckFn(this.x, this.y);
+      const willBeInWater = waterCheckFn(checkX, checkY);
+      
+      if (inWaterNow || willBeInWater) {
+        const goal = getCurrentGoal();
+        let bridge = null;
         
-        if (bridge) {
-            this.bridgeTarget = bridge;
-            this.bridgePhase = 'to_entry';
-            return; // Exit early: we have a mission, stop wandering/bouncing!
-        }
-        }
-        const leftX = this.x + this.vy * lookAhead;
-        const leftY = this.y - this.vx * lookAhead;
-        const rightX = this.x - this.vy * lookAhead;
-        const rightY = this.y + this.vx * lookAhead;
-
-        if (!waterCheckFn(leftX, leftY)) {
-          const newVx = this.vy;
-          const newVy = -this.vx;
-          this.vx = newVx;
-          this.vy = newVy;
-        } else if (!waterCheckFn(rightX, rightY)) {
-          const newVx = -this.vy;
-          const newVy = this.vx;
-          this.vx = newVx;
-          this.vy = newVy;
-        } else {
-          if (!this.bridgeTarget) {
-            const bridge = findNearestBridgeTowards(this.x, this.y, this.targetX, this.targetY, allBridges);
-            if (bridge) {
-              this.bridgeTarget = bridge;
-              this.bridgePhase = 'to_entry';
-              return; // Stop the bounce and start crossing
+        // FIX: Only villagers (communityId) look for bridges, and ONLY if not on cooldown
+        if (this.communityId && this.bridgeCooldown <= 0 && allBridges && allBridges.length > 0) {
+          let closestDist = Infinity;
+          for (const b of allBridges) {
+            if (!waterCheckFn(b.entry.x, b.entry.y) && !waterCheckFn(b.exit.x, b.exit.y)) {
+              const d1 = Math.hypot(this.x - b.entry.x, this.y - b.entry.y) + Math.hypot(b.exit.x - goal.x, b.exit.y - goal.y);
+              const d2 = Math.hypot(this.x - b.exit.x, this.y - b.exit.y) + Math.hypot(b.entry.x - goal.x, b.entry.y - goal.y);
+              
+              let totalDist = Math.min(d1, d2);
+              if (totalDist < closestDist) {
+                closestDist = totalDist;
+                bridge = d1 < d2 ? { entry: b.entry, exit: b.exit } : { entry: b.exit, exit: b.entry };
+              }
             }
           }
-          this.vx = -this.vx;
-          this.vy = -this.vy;
+        }
+        
+        if (bridge) {
+          this.bridgeTarget = bridge;
+          this.bridgePhase = 'to_entry';
+        } else {
+          // Avoid water: Nomads ALWAYS fall through to here, naturally bouncing off rivers.
+          const avoidance = getWaterAvoidanceVelocity(goal.x, goal.y);
+          if (avoidance) {
+            this.vx = avoidance.x;
+            this.vy = avoidance.y;
+          } else if (inWaterNow) {
+            const angle = Math.atan2(this.vy, this.vx);
+            this.vx = Math.cos(angle + Math.PI) * this.maxSpeed;
+            this.vy = Math.sin(angle + Math.PI) * this.maxSpeed;
+          }
         }
       }
     }
-
-    // --- Bridge crossing state machine ---
+    
+    // FIX: Apply cooldown check to proactive pathfinding as well
+    if (!this.bridgeTarget && this.communityId && waterCheckFn && this.bridgeCooldown <= 0) {
+      const goal = getCurrentGoal();
+      if (goal.x !== this.x || goal.y !== this.y) {
+        findBridgeForPath(goal.x, goal.y);
+      }
+    }
+    // Bridge crossing state machine
     if (this.bridgeTarget) {
-      if (!this.bridgePhase) this.bridgePhase = 'to_entry';
-      
       if (this.bridgePhase === 'to_entry') {
         this.moveToTarget(this.bridgeTarget.entry.x, this.bridgeTarget.entry.y);
         const distE = Math.hypot(this.x - this.bridgeTarget.entry.x, this.y - this.bridgeTarget.entry.y);
-        if (distE < 15) {
-          this.bridgePhase = 'crossing';
-        }
+        if (distE < 10) this.bridgePhase = 'crossing'; // Reduced to ensure they step fully onto the start
       } else if (this.bridgePhase === 'crossing') {
         this.moveToTarget(this.bridgeTarget.exit.x, this.bridgeTarget.exit.y);
         const distX = Math.hypot(this.x - this.bridgeTarget.exit.x, this.y - this.bridgeTarget.exit.y);
-        if (distX < 15) {
+        
+        // FIX: Require them to actually reach the end of the bridge (dist < 5 instead of 15)
+        if (distX < 5) {
           this.bridgeTarget = null;
           this.bridgePhase = null;
+          
+          // FIX: Apply a 2-second cooldown so they walk safely away from the river bank
+          this.bridgeCooldown = 120; 
+          
+          if (this.currentTask) this._postBridgeTask = this.currentTask;
         }
       }
+    } else if (this._postBridgeTask) {
+      this.currentTask = this._postBridgeTask;
+      this._postBridgeTask = null;
     } else if (this.communityId && !this.isLeader) {
-      // Replanting Task execution
+      // Replanting Task
       if (this.currentTask === 'replanting' && this.replantX) {
-        this.moveToTarget(this.replantX, this.replantY);
-        const dist = Math.sqrt(Math.pow(this.x - this.replantX, 2) + Math.pow(this.y - this.replantY, 2));
-        if (dist <= 5) {
-          this.vx = 0; this.vy = 0;
-          this.taskTimer--;
-          if (this.taskTimer <= 0) {
-            if (addTreeCallback) addTreeCallback(this.replantX, this.replantY);
-            this.currentTask = null;
-            this.replantX = null;
-            this.replantY = null;
+        if (isPathClear(this.replantX, this.replantY)) {
+          this.moveToTarget(this.replantX, this.replantY);
+          const dist = Math.sqrt(Math.pow(this.x - this.replantX, 2) + Math.pow(this.y - this.replantY, 2));
+          if (dist <= 5) {
+            this.vx = 0; this.vy = 0;
+            this.taskTimer--;
+            if (this.taskTimer <= 0) {
+              if (addTreeCallback) addTreeCallback(this.replantX, this.replantY);
+              this.currentTask = null;
+              this.replantX = null;
+              this.replantY = null;
+            }
+          }
+        } else {
+          const avoidance = getWaterAvoidanceVelocity(this.replantX, this.replantY);
+          if (avoidance) {
+            this.vx = avoidance.x;
+            this.vy = avoidance.y;
           }
         }
       }
       else if (this.restTimer > 0) {
         this.restTimer--;
-        this.wanderGently(myBase);
+        this.wanderGently(myBase, waterCheckFn);
       } else if (!this.currentTask) {
         this.currentTask = 'going_to_leader';
       }
 
       if (this.currentTask === 'seeking_mate' && this.mateTarget) {
-        this.moveToTarget(this.mateTarget.x, this.mateTarget.y);
-      } else if (this.currentTask === 'going_to_leader' && leaderHuman) {
-        this.moveToTarget(leaderHuman.x, leaderHuman.y);
-      } else if (this.currentTask === 'crafting') {
-        const dist = Math.sqrt(Math.pow(this.x - myBase.x, 2) + Math.pow(this.y - myBase.y, 2));
-        if (dist > 10) {
-          this.moveToTarget(myBase.x, myBase.y);
+        if (isPathClear(this.mateTarget.x, this.mateTarget.y)) {
+          this.moveToTarget(this.mateTarget.x, this.mateTarget.y);
         } else {
-          // Прибыли на базу — стоим на месте и крафтим
-          this.vx = 0; 
-          this.vy = 0;
+          const avoidance = getWaterAvoidanceVelocity(this.mateTarget.x, this.mateTarget.y);
+          if (avoidance) {
+            this.vx = avoidance.x;
+            this.vy = avoidance.y;
+          }
+        }
+      } else if (this.currentTask === 'going_to_leader' && leaderHuman) {
+        if (isPathClear(leaderHuman.x, leaderHuman.y)) {
+          this.moveToTarget(leaderHuman.x, leaderHuman.y);
+        } else {
+          const avoidance = getWaterAvoidanceVelocity(leaderHuman.x, leaderHuman.y);
+          if (avoidance) {
+            this.vx = avoidance.x;
+            this.vy = avoidance.y;
+          }
+        }
+      } else if (this.currentTask === 'crafting') {
+        if (isPathClear(myBase.x, myBase.y)) {
+          const dist = Math.sqrt(Math.pow(this.x - myBase.x, 2) + Math.pow(this.y - myBase.y, 2));
+          if (dist > 10) {
+            this.moveToTarget(myBase.x, myBase.y);
+          } else {
+            this.vx = 0; 
+            this.vy = 0;
+          }
+        } else {
+          const avoidance = getWaterAvoidanceVelocity(myBase.x, myBase.y);
+          if (avoidance) {
+            this.vx = avoidance.x;
+            this.vy = avoidance.y;
+          }
         }
         
         this.taskTimer--;
@@ -213,31 +360,42 @@ export class Human {
           this.restTimer = 1800; 
         }
       } else if (this.currentTask === 'gathering') {
-        const dist = Math.sqrt(Math.pow(this.x - this.taskTarget.x, 2) + Math.pow(this.y - this.taskTarget.y, 2));
-        if (dist > 14) {
-          this.moveToTarget(this.taskTarget.x, this.taskTarget.y);
-        } else {
-          this.vx = 0; this.vy = 0;
-          this.taskTimer--;
-          if (this.taskTimer <= 0) {
-            if (myBase && myBase.resources) {
-              if (this.taskTarget.type === 'stick' || this.taskTarget.type === 'tree') myBase.resources.wood += 1;
-              if (this.taskTarget.type === 'stone_vein') myBase.resources.stone += 1;
-              if (this.taskTarget.type === 'copper_vein') myBase.resources.copper += 1;
+        if (isPathClear(this.taskTarget.x, this.taskTarget.y)) {
+          const dist = Math.sqrt(Math.pow(this.x - this.taskTarget.x, 2) + Math.pow(this.y - this.taskTarget.y, 2));
+          if (dist > 14) {
+            this.moveToTarget(this.taskTarget.x, this.taskTarget.y);
+          } else {
+            this.vx = 0; this.vy = 0;
+            this.taskTimer--;
+            if (this.taskTimer <= 0) {
+              if (myBase && myBase.resources) {
+                if (this.taskTarget.type === 'stick' || this.taskTarget.type === 'tree') myBase.resources.wood += 1;
+                if (this.taskTarget.type === 'stone_vein') myBase.resources.stone += 1;
+                if (this.taskTarget.type === 'copper_vein') myBase.resources.copper += 1;
+              }
+              this.taskTarget.amount--;
+              this.taskTarget.minerId = null; this.taskTarget = null;
+              this.currentTask = null; this.restTimer = 900; 
             }
-            this.taskTarget.amount--;
-            this.taskTarget.minerId = null; this.taskTarget = null;
-            this.currentTask = null; this.restTimer = 900; 
+          }
+        } else {
+          const avoidance = getWaterAvoidanceVelocity(this.taskTarget.x, this.taskTarget.y);
+          if (avoidance) {
+            this.vx = avoidance.x;
+            this.vy = avoidance.y;
           }
         }
       }
     } else {
-      // Ограничение скорости для бродячих людей
+      // Limit speed for wandering humans
       const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-      if (speed > this.maxSpeed) { this.vx = (this.vx / speed) * this.maxSpeed; this.vy = (this.vy / speed) * this.maxSpeed; }
+      if (speed > this.maxSpeed) { 
+        this.vx = (this.vx / speed) * this.maxSpeed; 
+        this.vy = (this.vy / speed) * this.maxSpeed; 
+      }
     }
-
-    // ОБЩЕЕ ПЕРЕМЕЩЕНИЕ (теперь применяется и для задач, и для бродяжничества):
+    
+    // GENERAL MOVEMENT
     const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
     if (speed > this.maxSpeed) {
       this.vx = (this.vx / speed) * this.maxSpeed;
@@ -246,14 +404,34 @@ export class Human {
     this.x += this.vx; 
     this.y += this.vy;
 
-    // Ограничение по границам экрана (остается без изменений)
+    // Screen boundary limits
     if (this.x < this.radius) { this.x = this.radius; this.vx *= -1; }
     if (this.x > fieldSize - this.radius) { this.x = fieldSize - this.radius; this.vx *= -1; }
     if (this.y < this.radius) { this.y = this.radius; this.vy *= -1; }
-    if (this.y > fieldSize - this.radius) { this.y = fieldSize - this.radius; this.vy *= -1; }
+    if (this.y > fieldSize - this.radius) {
+        this.y = fieldSize - this.radius;
+        this.vy *= -1;
+    }
+    
+    // FINAL WATER CHECK
+    if (waterCheckFn && waterCheckFn(this.x, this.y)) {
+      const pushStrength = 3;
+      const angles = [0, Math.PI/4, Math.PI/2, 3*Math.PI/4, Math.PI, -Math.PI/4, -Math.PI/2, -3*Math.PI/4];
+      for (const angle of angles) {
+        const testX = this.x + Math.cos(angle) * pushStrength;
+        const testY = this.y + Math.sin(angle) * pushStrength;
+        if (!waterCheckFn(testX, testY)) {
+          this.x = testX;
+          this.y = testY;
+          this.vx = Math.cos(angle) * this.maxSpeed;
+          this.vy = Math.sin(angle) * this.maxSpeed;
+          break;
+        }
+      }
+    }
   }
 
-  moveToTarget(tx, ty) {
+   moveToTarget(tx, ty) {
     const dx = tx - this.x;
     const dy = ty - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
@@ -263,7 +441,7 @@ export class Human {
     }
   }
 
-  wanderGently(myBase) {
+  wanderGently(myBase, waterCheckFn) {
     if (Math.random() < 0.05) {
       this.vx += (Math.random() - 0.5) * 0.5;
       this.vy += (Math.random() - 0.5) * 0.5;
@@ -277,6 +455,18 @@ export class Human {
         this.vy += (dy / dist) * 0.05;
       }
     }
+
+    // Water awareness for wandering: just reverse if heading into water
+    if (waterCheckFn) {
+      const lookAhead = 12;
+      const checkX = this.x + this.vx * lookAhead;
+      const checkY = this.y + this.vy * lookAhead;
+      if (waterCheckFn(checkX, checkY)) {
+        this.vx = -this.vx;
+        this.vy = -this.vy;
+      }
+    }
+
     const speed = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
     if (speed > 0.5) {
       this.vx = (this.vx / speed) * 0.5;
@@ -288,8 +478,6 @@ export class Human {
       this.vx = Math.cos(angle) * 0.5;
       this.vy = Math.sin(angle) * 0.5;
     }
-    this.x += this.vx;
-    this.y += this.vy;
   }
 
   draw(ctx, myBase) {
@@ -346,7 +534,6 @@ export class Human {
       }
     }
   }
-
   drawTooltip(ctx, myBase, fieldSize) {
     if (!this.isSelected) return;
     const boxWidth = 265; 
@@ -406,4 +593,10 @@ export class Human {
     }
   }
 }
+
+
+
+
+
+
 
