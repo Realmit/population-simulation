@@ -70,7 +70,18 @@ const checkWaterBody = (x, y, lakes, rivers, bridges) => {
   }
   return false;
 };
-
+const pointInBridge = (px, py, bridges) => {
+  for (let b of bridges) {
+    const dx = px - b.x;
+    const dy = py - b.y;
+    const cos = Math.cos(-b.angle);
+    const sin = Math.sin(-b.angle);
+    const lx = dx * cos - dy * sin;
+    const ly = dx * sin + dy * cos;
+    if (Math.abs(lx) <= 42 && Math.abs(ly) <= 42) return true;
+  }
+  return false;
+};
 export default function SimulationCanvas({ initialPopulation }) {
   const canvasRef = useRef(null);
   const humansRef = useRef([]);
@@ -353,6 +364,10 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
         x = Math.random() * (FIELD_SIZE - 20) + 10;
         y = Math.random() * (FIELD_SIZE - 20) + 10;
         valid = true;
+        if (pointInBridge(x, y, bridges)) {
+          valid = false;
+          continue;
+        }
         for (let r of resources) {
           const rRad = r.type === 'stick' ? 2 : (r.type === 'tree' ? 6 : 10);
           const dist = Math.sqrt(Math.pow(x - r.x, 2) + Math.pow(y - r.y, 2));
@@ -371,10 +386,10 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
       if (i % 2 === 0) spawnResource('copper_vein', 50);  
     }
 
-    // Очистка ресурсов от воды
+    // Очистка ресурсов от воды и мостов
     for (let i = resources.length - 1; i >= 0; i--) {
       const r = resources[i];
-      if (checkWaterBody(r.x, r.y, lakes, rivers, [])) {
+      if (checkWaterBody(r.x, r.y, lakes, rivers, bridges) || pointInBridge(r.x, r.y, bridges)) {
         resources.splice(i, 1);
       }
     }

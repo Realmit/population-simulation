@@ -16,12 +16,21 @@ export class Human {
     this.bridgeCooldown = 0;
     this.bridgeOscillationCount = 0; 
     this.lastBridgeCrossingTime = 0;
+    this.lastBridgeUsed = null;
     this.tool = null; 
     this.currentTask = null; 
     this.taskTarget = null; 
     this.taskTimer = 0;
     this.maxTaskTimer = 0; 
     this.restTimer = 0;
+
+    this.stuckTimer = 0;
+    this.lastMoveX = this.x;
+    this.lastMoveY = this.y;
+    this.stuckThreshold = 600;
+    this.stuckDistanceThreshold = 5;
+    this.stuckCheckAccumulator = 0;
+    this.stuckCheckTimer = 0;
 
     if (parents) {
       const calcStat = (fatherStat, motherStat) => {
@@ -66,6 +75,42 @@ export class Human {
     if (this.reproductionCooldown > 0) this.reproductionCooldown--;
     if (this.bridgeCooldown === undefined) this.bridgeCooldown = 0;
     if (this.bridgeCooldown > 0) this.bridgeCooldown--;
+
+    const distMoved = Math.hypot(this.x - this.lastMoveX, this.y - this.lastMoveY);
+    this.stuckCheckAccumulator = (this.stuckCheckAccumulator || 0) + distMoved;
+    
+    const isIntentionallyStationary = 
+      this.bridgePhase === 'flying' ||
+      this.bridgePhase === 'to_entry' ||  // FIX: don't count bridge approach as stuck
+      this.restTimer > 0 ||
+      (this.currentTask === 'gathering' && this.taskTarget) ||
+      (this.currentTask === 'crafting') ||
+      (this.currentTask === 'replanting' && this.replantX);
+    
+    // Check every 60 frames (1 second)
+    if (!isIntentionallyStationary) {
+      this.stuckCheckTimer = (this.stuckCheckTimer || 0) + 1;
+      if (this.stuckCheckTimer >= 60) {
+        // If total distance traveled in 1 second is less than 30 pixels — stuck
+        if (this.stuckCheckAccumulator < 30) {
+          this.stuckTimer++;
+          if (this.stuckTimer >= 10) { // 10 seconds of being stuck
+            this.handleStuckRespawn(fieldSize, myBase, waterCheckFn);
+            this.stuckTimer = 0;
+          }
+        } else {
+          this.stuckTimer = 0;
+        }
+        this.stuckCheckAccumulator = 0;
+        this.stuckCheckTimer = 0;
+      }
+    } else {
+      this.stuckTimer = 0;
+      this.stuckCheckAccumulator = 0;
+      this.stuckCheckTimer = 0;
+    }
+    this.lastMoveX = this.x;
+    this.lastMoveY = this.y;
 
     // Update status string
     if (this.currentTask === 'seeking_mate') {
@@ -113,6 +158,8 @@ export class Human {
       return true;
     };
     
+
+  // ... rest of existing methods ...
     const isSafePosition = (x, y) => {
       if (!waterCheckFn) return true;
       return !waterCheckFn(x, y);
@@ -128,24 +175,34 @@ export class Human {
       
       const dirX = dx / dist;
       const dirY = dy / dist;
-      
-      if (isSafePosition(this.x + dirX * 15, this.y + dirY * 15)) {
-        return { x: dirX * this.maxSpeed, y: dirY * this.maxSpeed };
+      const angles = [
+        Math.random() * Math.PI * 2,           // Random angle
+        Math.random() * Math.PI * 0.5 - 0.25,  // Slight right
+        Math.random() * -Math.PI * 0.5 + 0.25, // Slight left
+        Math.PI * 0.25 + Math.random() * 0.5,  // Perpendicular right area
+        -Math.PI * 0.25 + Math.random() * -0.5 // Perpendicular left area
+      ];
+      for (const angle of angles) {
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        // Rotate original direction by angle
+        const newX = this.x + (dirX * cos - dirY * sin) * 20;
+        const newY = this.y + (dirX * sin + dirY * cos) * 20;
+        if (isSafePosition(newX, newY)) {
+          const newDirX = dirX * cos - dirY * sin;
+          const newDirY = dirX * sin + dirY * cos;
+          return { x: newDirX * this.maxSpeed, y: newDirY * this.maxSpeed };
+        }
       }
       
-      const perpX = -dirY;
-      const perpY = dirX;
-      
-      const leftX = this.x + perpX * 15;
-      const leftY = this.y + perpY * 15;
-      const rightX = this.x - perpX * 15;
-      const rightY = this.y - perpY * 15;
-      
-      if (isSafePosition(leftX, leftY)) {
-        return { x: perpX * this.maxSpeed, y: perpY * this.maxSpeed };
-      }
-      if (isSafePosition(rightX, rightY)) {
-        return { x: -perpX * this.maxSpeed, y: -perpY * this.maxSpeed };
+      // Try completely random directions
+      for (let i = 0; i < 12; i++) {
+        const randAngle = Math.random() * Math.PI * 2;
+        const testX = this.x + Math.cos(randAngle) * 20;
+        const testY = this.y + Math.sin(randAngle) * 20;
+        if (isSafePosition(testX, testY)) {
+          return { x: Math.cos(randAngle) * this.maxSpeed, y: Math.sin(randAngle) * this.maxSpeed };
+        }
       }
       
       return { x: -dirX * this.maxSpeed, y: -dirY * this.maxSpeed };
@@ -176,7 +233,14 @@ export class Human {
         
         const distViaBridge = Math.min(d1, d2);
         const distDirect = Math.hypot(this.x - targetX, this.y - targetY);
-        
+        let penalty = 1.0;
+        if (this.lastBridgeUsed) {
+          const isSameBridge = (this.lastBridgeUsed.entry.x === b.entry.x && this.lastBridgeUsed.entry.y === b.entry.y) ||
+                               (this.lastBridgeUsed.entry.x === b.exit.x && this.lastBridgeUsed.entry.y === b.exit.y);
+          if (isSameBridge && this.bridgeCooldown > 0) {
+            penalty = 5.0; // Make this bridge much less attractive during cooldown
+          }
+        }
         // Only use bridge if it doesn't add more than 3x the direct distance
         if (distViaBridge < distDirect * 2 && distViaBridge < closestDist) {
           closestDist = distViaBridge;
@@ -208,7 +272,7 @@ export class Human {
       }
     }
     
-    if (waterCheckFn && !this.bridgeTarget && this.bridgePhase !== 'crossing') {
+    if (waterCheckFn && !this.bridgeTarget && this.bridgePhase !== 'crossing' && this.bridgePhase !== 'to_entry') {
       const lookAhead = 15;
       const checkX = this.x + this.vx * lookAhead;
       const checkY = this.y + this.vy * lookAhead;
@@ -220,7 +284,7 @@ export class Human {
         const goal = getCurrentGoal();
         let bridge = null;
         
-        if (!this.isLeader && this.communityId && allBridges && allBridges.length > 0) {
+        if (this.bridgeCooldown <= 0 && !this.isLeader && this.communityId && allBridges && allBridges.length > 0) {
           let closestDist = Infinity;
           for (const b of allBridges) {
             if (!waterCheckFn(b.entry.x, b.entry.y) && !waterCheckFn(b.exit.x, b.exit.y)) {
@@ -255,7 +319,7 @@ export class Human {
       }
     }
     
-    if (!this.bridgeTarget && this.communityId && waterCheckFn && this.bridgeCooldown <= 0 && this.bridgeOscillationCount < 2) {
+    if (!this.bridgeTarget && this.communityId && waterCheckFn && this.bridgeCooldown <= 0  && this.bridgeOscillationCount < 2) {
       const goal = getCurrentGoal();
       if (goal.x !== this.x || goal.y !== this.y) {
         findBridgeForPath(goal.x, goal.y);
@@ -292,7 +356,7 @@ export class Human {
             this.bridgeOscillationCount = 0;
           }
           this.lastBridgeCrossingTime = currentTime;
-          
+          this.lastBridgeUsed = { entry: this.bridgeTarget.entry, exit: this.bridgeTarget.exit };
           this.bridgeTarget = null;
           this.bridgePhase = null;
           this.flyingProgress = 0;
@@ -478,7 +542,7 @@ export class Human {
     }
     
     // FINAL WATER CHECK
-    if (this.bridgePhase !== 'flying' && this.bridgeCooldown <= 0 && waterCheckFn && waterCheckFn(this.x, this.y)) {
+    if (this.bridgePhase !== 'flying' && this.bridgePhase !== 'to_entry' && this.bridgeCooldown <= 0 && waterCheckFn && waterCheckFn(this.x, this.y)) {
       const pushStrength = 3;
       const angles = [0, Math.PI/4, Math.PI/2, 3*Math.PI/4, Math.PI, -Math.PI/4, -Math.PI/2, -3*Math.PI/4];
       for (const angle of angles) {
@@ -520,14 +584,27 @@ export class Human {
       }
     }
 
-    // Water awareness for wandering: just reverse if heading into water
+    // Water awareness for wandering: pick new angle instead of just reversing
     if (waterCheckFn) {
       const lookAhead = 12;
       const checkX = this.x + this.vx * lookAhead;
       const checkY = this.y + this.vy * lookAhead;
       if (waterCheckFn(checkX, checkY)) {
-        this.vx = -this.vx;
-        this.vy = -this.vy;
+        // Try several random angles
+        for (let i = 0; i < 8; i++) {
+          const newAngle = Math.random() * Math.PI * 2;
+          const testX = this.x + Math.cos(newAngle) * lookAhead;
+          const testY = this.y + Math.sin(newAngle) * lookAhead;
+          if (!waterCheckFn(testX, testY)) {
+            this.vx = Math.cos(newAngle) * 0.5;
+            this.vy = Math.sin(newAngle) * 0.5;
+            return;
+          }
+        }
+        // Fallback: reverse with slight random offset
+        const angle = Math.atan2(this.vy, this.vx) + Math.PI + (Math.random() - 0.5) * 0.5;
+        this.vx = Math.cos(angle) * 0.5;
+        this.vy = Math.sin(angle) * 0.5;
       }
     }
 
@@ -536,14 +613,81 @@ export class Human {
       this.vx = (this.vx / speed) * 0.5;
       this.vy = (this.vy / speed) * 0.5;
     }
-    // If stuck (very low speed), pick a new random direction
     if (speed < 0.1) {
       const angle = Math.random() * Math.PI * 2;
       this.vx = Math.cos(angle) * 0.5;
       this.vy = Math.sin(angle) * 0.5;
     }
   }
+  handleStuckRespawn(fieldSize, myBase, waterCheckFn) {
+    const MAP_CENTER = fieldSize / 2;
+    let targetX = MAP_CENTER;
+    let targetY = MAP_CENTER;
 
+    if (this.communityId) {
+      if (this.taskTarget) {
+        targetX = this.taskTarget.x;
+        targetY = this.taskTarget.y;
+      } else if (myBase) {
+        targetX = myBase.x;
+        targetY = myBase.y;
+      }
+      this.currentTask = null;
+      this.taskTarget = null;
+      this.replantX = null;
+      this.replantY = null;
+      this.bridgeTarget = null;
+      this.bridgePhase = null;
+    } else {
+      let found = false;
+      for (let attempt = 0; attempt < 30 && !found; attempt++) {
+        const rx = 50 + Math.random() * (fieldSize - 100);
+        const ry = 50 + Math.random() * (fieldSize - 100);
+        if (!waterCheckFn || !waterCheckFn(rx, ry)) {
+          targetX = rx;
+          targetY = ry;
+          found = true;
+        }
+      }
+    }
+
+    if (waterCheckFn && waterCheckFn(targetX, targetY)) {
+      const angles = [0, Math.PI/4, Math.PI/2, 3*Math.PI/4, Math.PI, -Math.PI/4, -Math.PI/2, -3*Math.PI/4];
+      let safe = false;
+      for (let radius = 10; radius <= 50 && !safe; radius += 10) {
+        for (const angle of angles) {
+          const testX = targetX + Math.cos(angle) * radius;
+          const testY = targetY + Math.sin(angle) * radius;
+          if (!waterCheckFn(testX, testY)) {
+            targetX = testX;
+            targetY = testY;
+            safe = true;
+            break;
+          }
+        }
+      }
+      if (!safe) {
+        for (let i = 0; i < 20; i++) {
+          const rx = 50 + Math.random() * (fieldSize - 100);
+          const ry = 50 + Math.random() * (fieldSize - 100);
+          if (!waterCheckFn(rx, ry)) {
+            targetX = rx;
+            targetY = ry;
+            break;
+          }
+        }
+      }
+    }
+
+    this.x = targetX;
+    this.y = targetY;
+
+    // Random starting velocity instead of standing still
+    const angle = Math.random() * Math.PI * 2;
+    const speed = this.maxSpeed * (0.5 + Math.random() * 0.5);
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+  }
   draw(ctx, myBase) {
     // 1. Draw Royal Halo above head if child of leader
     if (this.isRoyal && !this.isLeader && this.communityId) {
