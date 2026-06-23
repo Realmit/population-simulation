@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import { Human } from '../simulation/Human';
 import { Base } from '../simulation/Base';
 
-// --- Вспомогательные функции для воды (вынесены наружу) ---
+// Вспомогательные функции для воды 
 const pointInEllipse = (px, py, cx, cy, a, b, angle) => {
   const dx = px - cx;
   const dy = py - cy;
@@ -91,12 +91,11 @@ export default function SimulationCanvas({ initialPopulation }) {
   const FIELD_SIZE = 1000;
   const [errorMessage, setErrorMessage] = useState(null);
 
-  // Рефы для водоемов (чтобы использовать в кнопке Spawn Human)
-    const waterRef = useRef({ lakes: [], rivers: [], bridges: [] });
+  const waterRef = useRef({ lakes: [], rivers: [], bridges: [] });
 
-    // Water banks generation toggle
-    const [waterBanksChecked, setWaterBanksChecked] = useState(true);
-    const generateWaterRef = useRef(true);
+  // Water banks generation toggle
+  const [waterBanksChecked, setWaterBanksChecked] = useState(true);
+  const generateWaterRef = useRef(true);
 
   // Zoom and Pan Refs
   const zoomRef = useRef(1.0);
@@ -185,7 +184,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
   for (const b of bridges) {
     if (!b || typeof b.x !== 'number' || typeof b.y !== 'number' || typeof b.angle !== 'number') continue;
 
-    // FIX: Shift angle by 90 degrees to get bank-to-bank nodes (sides b to d)
+    // Shift angle by 90 degrees to get bank-to-bank nodes (sides b to d)
     const crossAngle = b.angle + Math.PI / 2;
     const cos = Math.cos(crossAngle);
     const sin = Math.sin(crossAngle);
@@ -229,7 +228,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
     let lakes = [];
     let bridges = [];
     if (generateWater) {
-      // --- Генерация Рек ---
+      // Генерация Рек 
       for (let i = 0; i < 2; i++) {
         const edge = Math.floor(Math.random() * 4);
         let x, y, tx, ty;
@@ -254,7 +253,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
         rivers.push({ points, thickness });
       }
 
-      // --- Генерация Озер (с проверкой дистанции до рек и других озер) ---
+      // Генерация Озер (с проверкой дистанции до рек и других озер)
       for (let i = 0; i < 3; i++) {
         let valid = false, attempts = 0;
         let lx, ly, la, lb, lAngle;
@@ -280,7 +279,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
         if(valid) lakes.push({ x: lx, y: ly, a: la, b: lb, angle: lAngle });
       }
 
-      // --- Генерация Мостов (с обработкой пересечений) ---
+      // Генерация Мостов (с обработкой пересечений)
       for (let i = 0; i < rivers.length; i++) {
         const riv = rivers[i];
         const intersections = [];
@@ -337,10 +336,9 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
         }
       }
     }
-    // Сохраняем воду в реф для использования в кнопках
     waterRef.current = { lakes, rivers, bridges };
 
-    // --- Инициализация Людей (только на безопасных клетках) ---
+    // Инициализация Людей (только на безопасных клетках) 
     humansRef.current = Array.from({ length: simPopulation }, (_, i) => {
       let h = new Human(i, FIELD_SIZE);
       let attempts = 0;
@@ -446,7 +444,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
       ctx.fillStyle = '#4CAF50';
       ctx.fillRect(0, 0, FIELD_SIZE, FIELD_SIZE);
 
-      // --- Отрисовка Озер ---
+      // Отрисовка Озер 
       lakes.forEach(l => {
         ctx.beginPath();
         ctx.fillStyle = '#2196F3';
@@ -454,7 +452,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
         ctx.fill();
       });
 
-      // --- Отрисовка Рек ---
+      // Отрисовка Рек 
       rivers.forEach(riv => {
         ctx.beginPath();
         ctx.strokeStyle = '#2196F3';
@@ -597,7 +595,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
               valid = false;
               continue;
             }
-            // FIX: Check if target is IN water
+            // Check if target is IN water
             if (checkWaterBody(rx, ry, lakes, rivers, [])) {
               valid = false;
               continue;
@@ -621,7 +619,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
             }
             
             if (!valid) continue;
-            // FIX: Check that path from VILLAGER to target doesn't cross water
+            // Check that path from VILLAGER to target doesn't cross water
             if (valid) {
               const steps = 15;
               for (let s = 1; s < steps; s++) {
@@ -646,7 +644,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
             attempts++;
           } while (!valid && attempts < 50);
 
-          // FIX: If no valid spot found, don't assign the task
+          // If no valid spot found, don't assign the task
           if (valid && attempts < 50) {
             human.replantX = rx;
             human.replantY = ry;
@@ -855,7 +853,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
       currentBases.forEach(base => {
         base.draw(ctx);        
       });
-      // --- Отрисовка Мостов ---
+      // Отрисовка Мостов 
       bridges.forEach(b => {
         ctx.save();
         ctx.translate(b.x, b.y);
@@ -905,7 +903,6 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
           };
         });
 
-        // Let Human.js natively handle all bridge finding and collision logic
         human.update(FIELD_SIZE, currentHumans, myBase, leaderHuman, currentResources, (tx, ty) => {
           resourcesRef.current.push({
             id: Date.now() + Math.random(), type: 'tree', amount: 5, x: tx, y: ty, minerId: null, isSelected: false

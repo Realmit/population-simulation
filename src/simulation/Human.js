@@ -81,7 +81,7 @@ export class Human {
     
     const isIntentionallyStationary = 
       this.bridgePhase === 'flying' ||
-      this.bridgePhase === 'to_entry' ||  // FIX: don't count bridge approach as stuck
+      this.bridgePhase === 'to_entry' ||  
       this.restTimer > 0 ||
       (this.currentTask === 'gathering' && this.taskTarget) ||
       (this.currentTask === 'crafting') ||
@@ -148,7 +148,7 @@ export class Human {
       if (waterCheckFn(this.x, this.y)) return false;
       if (waterCheckFn(targetX, targetY)) return false;
       
-      const steps = 20; // FIX: was 5, too few to detect narrow rivers
+      const steps = 20; 
       for (let i = 1; i < steps; i++) {
         const t = i / steps;
         const checkX = this.x + (targetX - this.x) * t;
@@ -158,8 +158,6 @@ export class Human {
       return true;
     };
     
-
-  // ... rest of existing methods ...
     const isSafePosition = (x, y) => {
       if (!waterCheckFn) return true;
       return !waterCheckFn(x, y);
@@ -175,7 +173,6 @@ export class Human {
       
       const dirX = dx / dist;
       const dirY = dy / dist;
-      // FIX: Try 12 evenly spaced angles with larger search radius
       for (let i = 0; i < 12; i++) {
         const angle = (i / 12) * Math.PI * 2;
         const testX = this.x + Math.cos(angle) * 25;
@@ -184,8 +181,6 @@ export class Human {
           return { x: Math.cos(angle) * this.maxSpeed, y: Math.sin(angle) * this.maxSpeed };
         }
       }
-
-      // FIX: If completely surrounded, try to move AWAY from water center
       const waterAngles = [];
       for (let i = 0; i < 24; i++) {
         const angle = (i / 24) * Math.PI * 2;
@@ -241,7 +236,7 @@ export class Human {
       for (const b of allBridges) {
         if (waterCheckFn(b.entry.x, b.entry.y) || waterCheckFn(b.exit.x, b.exit.y)) continue;
         
-        // FIX: Check distances from BOTH sides of the bridge
+        // Check distances from BOTH sides of the bridge
         const d1 = Math.hypot(this.x - b.entry.x, this.y - b.entry.y) + Math.hypot(b.exit.x - targetX, b.exit.y - targetY);
         const d2 = Math.hypot(this.x - b.exit.x, this.y - b.exit.y) + Math.hypot(b.entry.x - targetX, b.entry.y - targetY);
         
@@ -303,7 +298,7 @@ export class Human {
           let closestDist = Infinity;
           for (const b of allBridges) {
             if (!waterCheckFn(b.entry.x, b.entry.y) && !waterCheckFn(b.exit.x, b.exit.y)) {
-              // FIX: Calculate paths matching the closest entry node
+              // Calculate paths matching the closest entry node
               const d1 = Math.hypot(this.x - b.entry.x, this.y - b.entry.y) + Math.hypot(b.exit.x - goal.x, b.exit.y - goal.y);
               const d2 = Math.hypot(this.x - b.exit.x, this.y - b.exit.y) + Math.hypot(b.entry.x - goal.x, b.entry.y - goal.y);
               
@@ -390,7 +385,7 @@ export class Human {
           this.x = this.bridgeTarget.exit.x;
           this.y = this.bridgeTarget.exit.y;
           
-          // FIX: Track bridge crossing for oscillation detection
+          // Track bridge crossing for oscillation detection
           const currentTime = Date.now();
           if (currentTime - this.lastBridgeCrossingTime < 5000) {
             this.bridgeOscillationCount++;
@@ -403,7 +398,7 @@ export class Human {
           this.bridgePhase = null;
           this.flyingProgress = 0;
           
-          // FIX: If oscillating, force rest and clear task
+          // If oscillating, force rest and clear task
           if (this.bridgeOscillationCount >= 2) {
             this.bridgeCooldown = 900; // 15 seconds cooldown
             this.bridgeOscillationCount = 0;
@@ -588,7 +583,7 @@ export class Human {
         this.bridgeCooldown <= 0 && this.restTimer <= 0 && 
         waterCheckFn && waterCheckFn(this.x, this.y)) {
       
-      // FIX: Try 16 angles with increasing push strength
+      // Try 16 angles with increasing push strength
       for (let pushStrength = 3; pushStrength <= 15; pushStrength += 3) {
         const angles = [];
         for (let i = 0; i < 16; i++) {
