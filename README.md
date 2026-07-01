@@ -18,8 +18,9 @@ A browser-based simulation of early human civilization development. Your agents 
 Create your own modules with existing instructions and easy-to-use template! Resources, terrain, human roles and much more! Anything can be modded in as a module!
 </h3>
 Existing example modules: mountain generation, food system, farmers (sub-addon for food system addon)
- [Module readme](https://github.com/Realmit/population-simulation/blob/main/MODULES.md)
- [Module quickstart](https://github.com/Realmit/population-simulation/blob/main/MODULES_QUICKSTART.md)
+
+[Module readme](https://github.com/Realmit/population-simulation/blob/main/MODULES.md)
+[Module quickstart](https://github.com/Realmit/population-simulation/blob/main/MODULES_QUICKSTART.md)
 <h1 align="center">
   <img width="1468" height="974" alt="image" src="https://github.com/user-attachments/assets/7dc34208-40c7-41f4-86e5-3088901513d4" />
 </h1>
