@@ -5,7 +5,7 @@
 
 export const FarmerRole = {
   name: 'FarmerRole',
-  version: '1.0.5',
+  version: '1.0.6',
   description: 'Adds farmer role and farming system',
 
   init(moduleManager) {
@@ -56,7 +56,6 @@ export const FarmerRole = {
     },
 
     onHumanUpdate(context) {
-      // ---> ADDED currentResources here to check for trees/rocks <---
       const { human, myBase, waterCheckFn, currentResources } = context; 
 
       if (!human.isFarmer || !myBase) return;
@@ -218,9 +217,12 @@ export const FarmerRole = {
                 human.restTimer = 300; 
               }
             } else {
+              
+              // --- SOIL EXPANSION LOGIC ---
               const allSoils = myBase.farmingSquares?.filter(sq => sq.isSoil) || [];
               let spotFound = false;
 
+              // 1. Try to expand existing farms
               if (allSoils.length > 0) {
                 for (const soil of allSoils) {
                   const adjacentSpots = [
@@ -235,7 +237,6 @@ export const FarmerRole = {
                       sq => Math.abs(sq.x - spot.x) < 5 && Math.abs(sq.y - spot.y) < 5
                     );
 
-                    // ---> Use new isSpotClear function <---
                     if (!occupied && isSpotClear(spot.x, spot.y)) {
                       const newSquare = {
                         x: spot.x, y: spot.y, isSoil: false, crop: null, cropGrowthTime: 0, minerId: human.id,
@@ -252,23 +253,30 @@ export const FarmerRole = {
                   }
                   if (spotFound) break; 
                 }
-                
-                if (!spotFound) {
-                  human.farmerTask = null;
-                  human.currentTask = 'farming';
-                  human.restTimer = 300;
-                }
+              }
 
-              } else {
-                // ---> Check if first square placement is clear <---
+              // 2. If no existing farms could be expanded (or this is the very first soil block), 
+              // start a brand new detached farm patch somewhere nearby
+              if (!spotFound) {
                 let rx, ry;
                 let foundSafe = false;
-                for(let attempts = 0; attempts < 15; attempts++) {
-                   rx = myBase.x + 40 + (Math.random() - 0.5) * 40;
-                   ry = myBase.y + 40 + (Math.random() - 0.5) * 40;
+                
+                for(let attempts = 0; attempts < 30; attempts++) {
+                   const angle = Math.random() * Math.PI * 2;
+                   const dist = 40 + Math.random() * 80; // Distance from the base center
+                   rx = myBase.x + Math.cos(angle) * dist;
+                   ry = myBase.y + Math.sin(angle) * dist;
+                   
                    if (isSpotClear(rx, ry)) {
-                     foundSafe = true;
-                     break;
+                     // Ensure the new patch doesn't spawn halfway clipping into another soil square
+                     const overlap = myBase.farmingSquares?.some(
+                       sq => Math.hypot(sq.x - rx, sq.y - ry) < FarmerRole.SOIL_SIZE
+                     );
+                     
+                     if (!overlap) {
+                       foundSafe = true;
+                       break;
+                     }
                    }
                 }
                 
@@ -283,7 +291,7 @@ export const FarmerRole = {
                   human.maxTaskTimer = FarmerRole.SOIL_MAKING_TIME;
                   human.targetFarmSquare = newSquare;
                 } else {
-                  // No room to start a farm, wait.
+                  // The base is completely surrounded by obstacles, nowhere to farm.
                   human.farmerTask = null;
                   human.currentTask = 'farming';
                   human.restTimer = 300;
