@@ -18,7 +18,7 @@ A browser-based simulation of early human civilization development. Your agents 
 Create your own modules with existing instructions and easy-to-use template! Resources, terrain, human roles and much more! Anything can be modded in as a module!
 </h3>
 <h1 align="center">
-  <img src="https://github.com/user-attachments/assets/ce3eaaf2-54eb-42f4-8918-6c11075ce199" alt="Simulation Preview" width="100%" />
+  <img width="1468" height="974" alt="image" src="https://github.com/user-attachments/assets/7dc34208-40c7-41f4-86e5-3088901513d4" />
 </h1>
 
 ## 🚀 Key Features
