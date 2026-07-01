@@ -1,5 +1,11 @@
-# [🌍 Prehistoric Civilization Simulation](https://rus.ktonehey.ru/) <-- Click me! (website)
-
+# [🌍 Prehistoric Civilization Simulation](https://Realmit.github.io/population-simulation/) <-- Click me!
+![React](https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB)
+![Vite](https://img.shields.io/badge/Vite-B73BFE?style=flat&logo=vite&logoColor=FFD62E)
+![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat&logo=javascript&logoColor=black)
+![License](https://img.shields.io/github/license/Realmit/population-simulation?t=1)
+![Repo Size](https://img.shields.io/github/repo-size/Realmit/population-simulation?t=1)
+![Last Commit](https://img.shields.io/github/last-commit/Realmit/population-simulation?t=1)
+ 
 [**English**](README.md) | [**Русский**](READMERU.md)
 
 ---
