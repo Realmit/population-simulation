@@ -3,6 +3,7 @@
 ![Vite](https://img.shields.io/badge/Vite-B73BFE?style=flat&logo=vite&logoColor=FFD62E)
 ![Repo Size](https://img.shields.io/github/repo-size/Realmit/population-simulation)
 ![Last Commit](https://img.shields.io/github/last-commit/Realmit/population-simulation)
+
 [**English**](README.md) | [**Русский**](READMERU.md)
 
 ---
