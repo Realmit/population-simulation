@@ -1,6 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Human } from '../simulation/Human';
 import { Base } from '../simulation/Base';
+import { ModuleLoader } from '../modules/ModuleLoader';
+import { moduleManager } from '../modules/ModuleManager';
 
 // Вспомогательные функции для воды 
 const pointInEllipse = (px, py, cx, cy, a, b, angle) => {
@@ -70,6 +72,7 @@ const checkWaterBody = (x, y, lakes, rivers, bridges) => {
   }
   return false;
 };
+
 const pointInBridge = (px, py, bridges) => {
   for (let b of bridges) {
     const dx = px - b.x;
@@ -82,6 +85,7 @@ const pointInBridge = (px, py, bridges) => {
   }
   return false;
 };
+
 export default function SimulationCanvas({ initialPopulation }) {
   const canvasRef = useRef(null);
   const humansRef = useRef([]);
@@ -93,9 +97,12 @@ export default function SimulationCanvas({ initialPopulation }) {
 
   const waterRef = useRef({ lakes: [], rivers: [], bridges: [] });
 
-  // Water banks generation toggle
+  // Module generation toggles
   const [waterBanksChecked, setWaterBanksChecked] = useState(true);
   const generateWaterRef = useRef(true);
+  
+  const [mountainsChecked, setMountainsChecked] = useState(true);
+  const generateMountainsRef = useRef(true);
 
   // Zoom and Pan Refs
   const zoomRef = useRef(1.0);
@@ -163,70 +170,33 @@ export default function SimulationCanvas({ initialPopulation }) {
     panRef.current = { x: 0, y: 0 };
   };
   
-    const handleRestartSimulation = () => {
+  const handleRestartSimulation = () => {
     if (popInput < 1 || popInput > 500 || isNaN(popInput)) {
       setErrorMessage("Initial population must be between 1 and 500.");
       return;
     }
     generateWaterRef.current = waterBanksChecked;
+    generateMountainsRef.current = mountainsChecked;
     setSimPopulation(popInput);
     setRestartToken(t => t + 1);
     handleResetCamera();
   };
 
-function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
-  if (!bridges || !Array.isArray(bridges) || bridges.length === 0 
-  || typeof hx !== 'number' || typeof hy !== 'number')  return null;
-
-  let best = null;
-  let bestScore = Infinity;
-
-  for (const b of bridges) {
-    if (!b || typeof b.x !== 'number' || typeof b.y !== 'number' || typeof b.angle !== 'number') continue;
-
-    // Shift angle by 90 degrees to get bank-to-bank nodes (sides b to d)
-    const crossAngle = b.angle + Math.PI / 2;
-    const cos = Math.cos(crossAngle);
-    const sin = Math.sin(crossAngle);
-    const halfLen = 30; 
-    const treeSize = 2; 
-
-    const end1 = { x: b.x + cos * (halfLen + crossSize), y: b.y + sin * (halfLen + crossSize) };
-    const end2 = { x: b.x - cos * (halfLen + crossSize), y: b.y - sin * (halfLen + crossSize) };
-
-    const dH1 = Math.hypot(end1.x - hx, end1.y - hy);
-    const dT1 = Math.hypot(end1.x - tx, end1.y - ty);
-    const score1 = dH1 + dT1 * 0.5;
-
-    const dH2 = Math.hypot(end2.x - hx, end2.y - hy);
-    const dT2 = Math.hypot(end2.x - tx, end2.y - ty);
-    const score2 = dH2 + dT2 * 0.5;
-
-    if (score1 < bestScore) {
-      bestScore = score1;
-      best = { entry: end1, exit: end2 };
-    }
-    if (score2 < bestScore) {
-      bestScore = score2;
-      best = { entry: end2, exit: end1 };
-    }
-  }
-
-  return best;
-}
+  useEffect(() => {
+    // Load modules on component mount
+    ModuleLoader.loadAllModules().catch(err => console.error('Failed to load modules:', err));
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     
-    const isSafeSpawn = (x, y) => {
-      return !checkWaterBody(x, y, waterRef.current.lakes, waterRef.current.rivers, []);
-    };
     const generateWater = generateWaterRef.current;
 
     let rivers = [];
     let lakes = [];
     let bridges = [];
+    
     if (generateWater) {
       // Генерация Рек 
       for (let i = 0; i < 2; i++) {
@@ -253,7 +223,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
         rivers.push({ points, thickness });
       }
 
-      // Генерация Озер (с проверкой дистанции до рек и других озер)
+      // Генерация Озер 
       for (let i = 0; i < 3; i++) {
         let valid = false, attempts = 0;
         let lx, ly, la, lb, lAngle;
@@ -279,7 +249,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
         if(valid) lakes.push({ x: lx, y: ly, a: la, b: lb, angle: lAngle });
       }
 
-      // Генерация Мостов (с обработкой пересечений)
+      // Генерация Мостов 
       for (let i = 0; i < rivers.length; i++) {
         const riv = rivers[i];
         const intersections = [];
@@ -338,7 +308,29 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
     }
     waterRef.current = { lakes, rivers, bridges };
 
-    // Инициализация Людей (только на безопасных клетках) 
+    // Execute module initialization hook
+    moduleManager.executeHook('onSimulationInit', {
+      fieldSize: FIELD_SIZE,
+      lakes,
+      rivers,
+      bridges,
+      generateMountains: generateMountainsRef.current, // Pass UI choice to module
+      moduleManager
+    });
+
+    // Unified Obstacle Checker (Includes Water and Mountains)
+    const mountainModule = moduleManager.getModule('MountainGeneration');
+    const isObstacleFn = (x, y, activeBridges = bridges) => {
+      if (checkWaterBody(x, y, lakes, rivers, activeBridges)) return true;
+      if (mountainModule && mountainModule.isInMountain(x, y)) return true;
+      return false;
+    };
+
+    const isSafeSpawn = (x, y) => {
+      return !isObstacleFn(x, y, []);
+    };
+
+    // Инициализация Людей (только на безопасных клетках)
     humansRef.current = Array.from({ length: simPopulation }, (_, i) => {
       let h = new Human(i, FIELD_SIZE);
       let attempts = 0;
@@ -384,10 +376,10 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
       if (i % 2 === 0) spawnResource('copper_vein', 50);  
     }
 
-    // Очистка ресурсов от воды и мостов
+    // Очистка ресурсов от препятствий
     for (let i = resources.length - 1; i >= 0; i--) {
       const r = resources[i];
-      if (checkWaterBody(r.x, r.y, lakes, rivers, bridges) || pointInBridge(r.x, r.y, bridges)) {
+      if (isObstacleFn(r.x, r.y, bridges) || pointInBridge(r.x, r.y, bridges)) {
         resources.splice(i, 1);
       }
     }
@@ -466,6 +458,13 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
         ctx.stroke();
       });
 
+      // Execute module resource drawing hooks
+      moduleManager.executeHook('onResourceDraw', {
+        ctx,
+        bases: basesRef.current,
+        moduleManager
+      });
+
       const currentHumans = humansRef.current;
       const currentBases = basesRef.current;
       
@@ -493,6 +492,13 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
         } else {
           base.replantWindowTimer--;
         }
+
+        // Execute module base update hooks
+        moduleManager.executeHook('onBaseUpdate', {
+          base,
+          humans: currentHumans,
+          moduleManager
+        });
       });
 
       const unalignedHumans = currentHumans.filter(h => h.communityId === null && !h.isSelected);
@@ -531,20 +537,20 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
         const WATER_BUFFER = 30;
         let nearWater = false;
         const checkAngles = [0, 0.785, 1.571, 2.356, 3.142, 3.927, 4.712, 5.498];
+        
         for (const angle of checkAngles) {
           const cx = leader.x + Math.cos(angle) * WATER_BUFFER;
           const cy = leader.y + Math.sin(angle) * WATER_BUFFER;
-          if (checkWaterBody(cx, cy, lakes, rivers, bridges)) {
+          if (isObstacleFn(cx, cy, bridges)) {
             nearWater = true;
             break;
           }
         }
-        // Also check center
-        if (!nearWater && checkWaterBody(leader.x, leader.y, lakes, rivers, bridges)) {
+        
+        if (!nearWater && isObstacleFn(leader.x, leader.y, bridges)) {
           nearWater = true;
         }
 
-        // If near water, UNDO the community assignment and skip
         if (nearWater) {
           for (let member of nearbyHumans) {
             member.communityId = null;
@@ -595,8 +601,8 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
               valid = false;
               continue;
             }
-            // Check if target is IN water
-            if (checkWaterBody(rx, ry, lakes, rivers, [])) {
+            
+            if (isObstacleFn(rx, ry, [])) {
               valid = false;
               continue;
             }
@@ -612,21 +618,21 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
             ];
             
             for (const point of bufferCheckPoints) {
-              if (checkWaterBody(point.x, point.y, lakes, rivers, [])) {
+              if (isObstacleFn(point.x, point.y, [])) {
                 valid = false;
                 break;
               }
             }
             
             if (!valid) continue;
-            // Check that path from VILLAGER to target doesn't cross water
+            
             if (valid) {
               const steps = 15;
               for (let s = 1; s < steps; s++) {
                 const t = s / steps;
                 const checkX = human.x + (rx - human.x) * t;
                 const checkY = human.y + (ry - human.y) * t;
-                if (checkWaterBody(checkX, checkY, lakes, rivers, bridges)) {
+                if (isObstacleFn(checkX, checkY, bridges)) {
                   valid = false;
                   break;
                 }
@@ -641,10 +647,23 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
                 }
               }
             }
+            if (valid) {
+              for (const checkBase of currentBases) {
+                if (checkBase.farmingSquares) {
+                  for (const sq of checkBase.farmingSquares) {
+                    // Check if tree center is too close to soil center
+                    if (Math.hypot(rx - sq.x, ry - sq.y) < 25) { 
+                      valid = false;
+                      break;
+                    }
+                  }
+                }
+                if (!valid) break; // Break out of base loop if invalid
+              }
+            }
             attempts++;
           } while (!valid && attempts < 50);
 
-          // If no valid spot found, don't assign the task
           if (valid && attempts < 50) {
             human.replantX = rx;
             human.replantY = ry;
@@ -762,13 +781,13 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
                 if (node.minerId !== null && node.minerId !== human.id) return;
                 if (node.type !== targetType) return;
                 const RESOURCE_WATER_BUFFER = 25;
-                const isNearWater = checkWaterBody(node.x, node.y, lakes, rivers, []) ||
-                  checkWaterBody(node.x - RESOURCE_WATER_BUFFER, node.y, lakes, rivers, []) ||
-                  checkWaterBody(node.x + RESOURCE_WATER_BUFFER, node.y, lakes, rivers, []) ||
-                  checkWaterBody(node.x, node.y - RESOURCE_WATER_BUFFER, lakes, rivers, []) ||
-                  checkWaterBody(node.x, node.y + RESOURCE_WATER_BUFFER, lakes, rivers, []);
+                const isNearWater = isObstacleFn(node.x, node.y, []) ||
+                  isObstacleFn(node.x - RESOURCE_WATER_BUFFER, node.y, []) ||
+                  isObstacleFn(node.x + RESOURCE_WATER_BUFFER, node.y, []) ||
+                  isObstacleFn(node.x, node.y - RESOURCE_WATER_BUFFER, []) ||
+                  isObstacleFn(node.x, node.y + RESOURCE_WATER_BUFFER, []);
+                
                 if (isNearWater) {
-                  // Check if it's specifically on a bridge
                   let onBridge = false;
                   for (const b of bridges) {
                     const dx = node.x - b.x;
@@ -782,7 +801,6 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
                       break;
                     }
                   }
-                  // Only skip if near water but NOT on a bridge
                   if (!onBridge) return;
                 }
                 
@@ -853,6 +871,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
       currentBases.forEach(base => {
         base.draw(ctx);        
       });
+
       // Отрисовка Мостов 
       bridges.forEach(b => {
         ctx.save();
@@ -862,45 +881,38 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
         ctx.fillRect(-30, -16, 60, 32);
         ctx.restore();
       });
+
       let selectedHuman = null;
 
-      const waterCheck = (x, y) => checkWaterBody(x, y, lakes, rivers, bridges);
+      const waterCheck = (x, y) => isObstacleFn(x, y, bridges);
+      
       const formattedBridges = bridges.map(b => {
-      const crossAngle = b.angle + Math.PI / 2;
-      const cos = Math.cos(crossAngle);
-      const sin = Math.sin(crossAngle);
-      const halfLen = 30;
-      const treeSize = 6;
-      return {
-        x: b.x,
-        y: b.y,
-        angle: b.angle, // Keep original river angle for structural rendering
-        entry: { x: b.x + cos * (halfLen + treeSize), y: b.y + sin * (halfLen + treeSize) },
-        exit: { x: b.x - cos * (halfLen + treeSize), y: b.y - sin * (halfLen + treeSize) }
-      };
-    });
-
+        const crossAngle = b.angle + Math.PI / 2;
+        const cos = Math.cos(crossAngle);
+        const sin = Math.sin(crossAngle);
+        const halfLen = 30;
+        const treeSize = 6;
+        return {
+          x: b.x,
+          y: b.y,
+          angle: b.angle, 
+          entry: { x: b.x + cos * (halfLen + treeSize), y: b.y + sin * (halfLen + treeSize) },
+          exit: { x: b.x - cos * (halfLen + treeSize), y: b.y - sin * (halfLen + treeSize) }
+        };
+      });
 
       currentHumans.forEach(human => {
         const myBase = currentBases.find(b => b.id === human.communityId);
         const leaderHuman = currentHumans.find(h => h.communityId === human.communityId && h.isLeader);
         
-        const waterCheck = (x, y) => checkWaterBody(x, y, lakes, rivers, bridges);
-      
-        // Convert bridges to {entry, exit} format, rotating 90 degrees to point to the dry land banks
-        const formattedBridges = bridges.map(b => {
-          const crossAngle = b.angle + Math.PI / 2;
-          const cos = Math.cos(crossAngle);
-          const sin = Math.sin(crossAngle);
-          const halfLen = 30;
-          const treeSize = 2;
-          return {
-            x: b.x,
-            y: b.y,
-            angle: b.angle,
-            entry: { x: b.x + cos * (halfLen + treeSize), y: b.y + sin * (halfLen + treeSize) },
-            exit: { x: b.x - cos * (halfLen + treeSize), y: b.y - sin * (halfLen + treeSize) }
-          };
+        // Execute module human update hooks
+        moduleManager.executeHook('onHumanUpdate', {
+          human,
+          myBase,
+          leaderHuman,
+          currentResources,
+          waterCheckFn: waterCheck,
+          moduleManager
         });
 
         human.update(FIELD_SIZE, currentHumans, myBase, leaderHuman, currentResources, (tx, ty) => {
@@ -910,9 +922,10 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
         }, waterCheck, formattedBridges);
 
         human.draw(ctx, myBase);
+        moduleManager.executeHook('onHumanDraw', { human, ctx, moduleManager });
+        
         if (human.isSelected) selectedHuman = human;
       });
-
 
       let selectedResource = null;
       currentResources.forEach(res => {
@@ -960,7 +973,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
         const myBase = currentBases.find(b => b.id === selectedHuman.communityId);
         selectedHuman.drawTooltip(ctx, myBase, canvas.width);
         
-                selectedHuman.x = originalX;
+        selectedHuman.x = originalX;
         selectedHuman.y = originalY;
       } else if (selectedResource) {
         drawResourceTooltip(ctx, selectedResource, canvas.width);
@@ -970,13 +983,21 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
       if (tickCount % 15 === 0) {
         setUiState({
           population: currentHumans.length,
-          colonies: currentBases.map(b => ({
-            id: b.id, name: b.name, population: b.population, populationLimit: b.populationLimit, color: b.color, x: b.x, y: b.y, resources: { ...b.resources }
-          })),
-          humans: currentHumans.map(h => ({
-            id: h.id, name: h.name, gender: h.gender, communityId: h.communityId, isLeader: h.isLeader, tool: h.tool,
-            parents: h.parents ? { father: { id: h.parents.father.id }, mother: { id: h.parents.mother.id } } : null
-          }))
+          colonies: currentBases.map(b => {
+            const moduleResources = [];
+            moduleManager.executeHook('onRenderBaseResources', { base: b, resourcesHtml: moduleResources });
+            return {
+              id: b.id, name: b.name, population: b.population, populationLimit: b.populationLimit, color: b.color, x: b.x, y: b.y, resources: { ...b.resources }, moduleResources
+            };
+          }),
+          humans: currentHumans.map(h => {
+            const moduleRoles = [];
+            moduleManager.executeHook('onRenderHumanRole', { human: h, rolesHtml: moduleRoles });
+            return {
+              id: h.id, name: h.name, gender: h.gender, communityId: h.communityId, isLeader: h.isLeader, tool: h.tool, isFarmer: h.isFarmer, moduleRoles,
+              parents: h.parents ? { father: { id: h.parents.father.id }, mother: { id: h.parents.mother.id } } : null
+            };
+          })
         });
       }
 
@@ -1119,14 +1140,20 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
     };
   }, []);
 
-  const isSafeSpawn = (x, y) => {
-    const { lakes, rivers} = waterRef.current;
-    for (let l of lakes) {
-      if (pointInEllipse(x, y, l.x, l.y, l.a + 10, l.b + 10, l.angle)) return false;
+  const isSafeSpawnGlobal = (x, y) => {
+    const { lakes, rivers } = waterRef.current;
+    if (lakes) {
+      for (let l of lakes) {
+        if (pointInEllipse(x, y, l.x, l.y, l.a + 10, l.b + 10, l.angle)) return false;
+      }
     }
-    for (let riv of (rivers || bridges)) {
-      if (pointNearRiver(x, y, riv.points, riv.thickness + 10)) return false;
+    if (rivers) {
+      for (let riv of rivers) {
+        if (pointNearRiver(x, y, riv.points, riv.thickness + 10)) return false;
+      }
     }
+    const mMod = moduleManager.getModule('MountainGeneration');
+    if (mMod && mMod.isInMountain(x, y)) return false;
     return true;
   };
 
@@ -1201,7 +1228,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
             onClick={() => {
               let attempts = 0;
               let x = FIELD_SIZE / 2, y = FIELD_SIZE / 2;
-              while (!isSafeSpawn(x, y) && attempts < 50) {
+              while (!isSafeSpawnGlobal(x, y) && attempts < 50) {
                 x = Math.random() * (FIELD_SIZE - 20) + 10;
                 y = Math.random() * (FIELD_SIZE - 20) + 10;
                 attempts++;
@@ -1253,7 +1280,7 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
           >
             Reset Camera View
           </button>
-          <label style={{ display: 'flex', alignItems: 'center', color: '#fff', fontSize: '0.9rem' }}>
+          <label style={{ display: 'flex', alignItems: 'center', color: '#fff', fontSize: '0.9rem', marginLeft: '10px' }}>
             <input 
               type="checkbox" 
               checked={waterBanksChecked} 
@@ -1261,6 +1288,15 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
               style={{ marginRight: '6px' }}
             />
             Generate water banks
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', color: '#fff', fontSize: '0.9rem', marginLeft: '10px' }}>
+            <input 
+              type="checkbox" 
+              checked={mountainsChecked} 
+              onChange={(e) => setMountainsChecked(e.target.checked)} 
+              style={{ marginRight: '6px' }}
+            />
+            Generate mountains
           </label>
         </div>
       </div>
@@ -1299,7 +1335,9 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
                 <div style={{ fontSize: '0.9rem', color: '#bbb' }}>
                   <div style={{ marginTop: '5px', padding: '5px', backgroundColor: '#222', borderRadius: '4px', fontSize: '0.85rem' }}>
                     📦 <strong>Stockpile:</strong><br/>
-                    🪵 Wood: {colony.resources?.wood || 0} 🪨 Stone: {colony.resources?.stone || 0}<br/>🪙 Copper: {colony.resources?.copper || 0}<br/>
+                    🪵 Wood: {colony.resources?.wood || 0} 🪨 Stone: {colony.resources?.stone || 0}<br/>🪙 Copper: {colony.resources?.copper || 0}
+                    {colony.moduleResources && colony.moduleResources.length > 0 ? ' ' + colony.moduleResources.join(' ') : ''}
+                    <br/>
                     🛠️ <strong>Tools:</strong> 🪵: {colony.resources?.wood_tools || 0} | 🪨: {colony.resources?.stone_tools || 0} | 🪙: {colony.resources?.copper_tools || 0}
                   </div>
                 </div>
@@ -1340,129 +1378,134 @@ function findNearestBridgeTowards(hx, hy, tx, ty, bridges) {
                   </div>
                   
                   <div style={{ padding: '10px', backgroundColor: '#333', borderRadius: '0 0 4px 4px', fontSize: '0.9rem' }}>
-                    {sortedLineage.map(h => (
-                      <div key={h.id} style={{ 
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px'
-                      }}>
-                        <div>
-                          {h.isLeader ? (
-                            <span style={{ marginRight: '8px' }}>🟡</span>
-                          ) : (
-                            <span style={{ marginRight: '8px', fontWeight: 'bold', color: h.gender === 'male' ? '#89CFF0' : '#FFB6C1' }}>
-                              {h.gender === 'male' ? '♂' : '♀'}
-                            </span>
-                          )}
-                          
-                          <span style={{ color: colony.color, fontWeight: h.isLeader ? 'bold' : 'normal' }}>
-                            {h.name} <span style={{ opacity: 0.6, fontSize: '0.85em', marginLeft: '2px' }}>#{h.id}</span>
-                            {h.tool && (
-                              <span style={{ fontSize: '0.8rem', backgroundColor: '#222', color: '#fff', padding: '2px 4px', borderRadius: '3px', marginLeft: '6px', border: '1px solid #555' }}>
-                                🪓 {h.tool}
+                    {sortedLineage.map(h => {
+                      return (
+                        <div key={h.id} style={{ 
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px'
+                        }}>
+                          <div>
+                            {h.isLeader ? (
+                              <span style={{ marginRight: '8px' }}>🟡</span>
+                            ) : (
+                              <span style={{ marginRight: '8px', fontWeight: 'bold', color: h.gender === 'male' ? '#89CFF0' : '#FFB6C1' }}>
+                                {h.gender === 'male' ? '♂' : '♀'}
                               </span>
                             )}
+                            
+                            {h.moduleRoles && h.moduleRoles.length > 0 ? h.moduleRoles.map((role, idx) => <span key={idx} style={{ marginRight: '6px' }}>{role}</span>) : null}
+                            
+                            <span style={{ color: colony.color, fontWeight: h.isLeader ? 'bold' : 'normal' }}>
+                              {h.name} <span style={{ opacity: 0.6, fontSize: '0.85em', marginLeft: '2px' }}>#{h.id}</span>
+                              {h.tool && (
+                                <span style={{ fontSize: '0.8rem', backgroundColor: '#222', color: '#fff', padding: '2px 4px', borderRadius: '3px', marginLeft: '6px', border: '1px solid #555' }}>
+                                  🪓 {h.tool}
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                          <span 
+                            onClick={() => renameHuman(h.id, h.name)}
+                            style={{ cursor: 'pointer', color: '#666', padding: '0 5px', display: 'inline-block', transform: 'scaleX(-1)' }}
+                            title="Rename Villager"
+                          >
+                            ✎
                           </span>
                         </div>
-                        <span 
-                          onClick={() => renameHuman(h.id, h.name)}
-                          style={{ cursor: 'pointer', color: '#666', padding: '0 5px', display: 'inline-block', transform: 'scaleX(-1)' }}
-                          title="Rename Villager"
-                        >
-                          ✎
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               );
-            }
-          ,
-        ))}</div>
-        </div>
-{/* Окно ошибки */}
-{errorMessage && (
-  <div style={{
-    position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
-    backgroundColor: 'rgba(0, 0, 0, 0.6)', display: 'flex',
-    justifyContent: 'center', alignItems: 'center', zIndex: 9999
-  }}>
-    <div style={{
-      backgroundColor: '#2a2a2a', padding: '24px', borderRadius: '8px',
-      boxShadow: '0 4px 20px rgba(0,0,0,0.5)', border: '1px solid #ff4444',
-      maxWidth: '400px', width: '90%', textAlign: 'center', color: '#fff'
-    }}>
-      <h3 style={{ marginTop: 0, color: '#ff4444', fontSize: '1.2rem' }}>WARNING</h3>
-      <p style={{ margin: '15px 0 20px', color: '#bbb' }}>{errorMessage}</p>
-      <button 
-        onClick={() => setErrorMessage(null)}
-        style={{
-          padding: '8px 24px', borderRadius: '4px', border: 'none',
-          backgroundColor: '#ff4444', color: '#fff', cursor: 'pointer',
-          fontWeight: 'bold', transition: 'background-color 0.2s'
-        }}
-        onMouseOver={(e) => e.target.style.backgroundColor = '#ff6666'}
-        onMouseOut={(e) => e.target.style.backgroundColor = '#ff4444'}
-      >
-        ОК
-      </button>
-    </div>
-  </div>
-)}
-{/* Окно переименования */}
-  {renameModal.isOpen && (
-    <div style={{
-      position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
-      backgroundColor: 'rgba(0, 0, 0, 0.6)', display: 'flex',
-      justifyContent: 'center', alignItems: 'center', zIndex: 9999
-    }}>
-      <div style={{
-        backgroundColor: '#2a2a2a', padding: '24px', borderRadius: '8px',
-        boxShadow: '0 4px 20px rgba(0,0,0,0.5)', border: '1px solid #2e7d32',
-        maxWidth: '400px', width: '90%', color: '#fff'
-      }}>
-        <h3 style={{ marginTop: 0, color: '#2e7d32', fontSize: '1.2rem' }}>
-          {renameModal.type === 'base' ? 'Rename settlement' : 'Rename citizen'}
-        </h3>
-        
-        <input 
-          type="text" 
-          value={renameModal.newName}
-          onChange={(e) => setRenameModal({ ...renameModal, newName: e.target.value })}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleSaveName();
-            if (e.key === 'Escape') setRenameModal({ isOpen: false, type: null, id: null, oldName: '', newName: '' });
-          }}
-          autoFocus
-          style={{
-            width: '100%', padding: '10px', marginTop: '10px', marginBottom: '20px',
-            borderRadius: '4px', border: '1px solid #555', backgroundColor: '#333',
-            color: '#fff', fontSize: '1rem', boxSizing: 'border-box'
-          }}
-        />
-
-        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-          <button 
-            onClick={() => setRenameModal({ isOpen: false, type: null, id: null, oldName: '', newName: '' })}
-            style={{
-              padding: '8px 16px', borderRadius: '4px', border: 'none',
-              backgroundColor: '#555', color: '#fff', cursor: 'pointer', fontWeight: 'bold'
-            }}
-          >
-            Cancel
-          </button>
-          <button 
-            onClick={handleSaveName}
-            style={{
-              padding: '8px 16px', borderRadius: '4px', border: 'none',
-              backgroundColor: '#2e7d32', color: '#fff', cursor: 'pointer', fontWeight: 'bold'
-            }}
-          >
-            Save
-          </button>
+            })
+          )}
         </div>
       </div>
-    </div>
-  )}
+      
+      {/* Окно ошибки */}
+      {errorMessage && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+          backgroundColor: 'rgba(0, 0, 0, 0.6)', display: 'flex',
+          justifyContent: 'center', alignItems: 'center', zIndex: 9999
+        }}>
+          <div style={{
+            backgroundColor: '#2a2a2a', padding: '24px', borderRadius: '8px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.5)', border: '1px solid #ff4444',
+            maxWidth: '400px', width: '90%', textAlign: 'center', color: '#fff'
+          }}>
+            <h3 style={{ marginTop: 0, color: '#ff4444', fontSize: '1.2rem' }}>WARNING</h3>
+            <p style={{ margin: '15px 0 20px', color: '#bbb' }}>{errorMessage}</p>
+            <button 
+              onClick={() => setErrorMessage(null)}
+              style={{
+                padding: '8px 24px', borderRadius: '4px', border: 'none',
+                backgroundColor: '#ff4444', color: '#fff', cursor: 'pointer',
+                fontWeight: 'bold', transition: 'background-color 0.2s'
+              }}
+              onMouseOver={(e) => e.target.style.backgroundColor = '#ff6666'}
+              onMouseOut={(e) => e.target.style.backgroundColor = '#ff4444'}
+            >
+              ОК
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {/* Окно переименования */}
+      {renameModal.isOpen && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+          backgroundColor: 'rgba(0, 0, 0, 0.6)', display: 'flex',
+          justifyContent: 'center', alignItems: 'center', zIndex: 9999
+        }}>
+          <div style={{
+            backgroundColor: '#2a2a2a', padding: '24px', borderRadius: '8px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.5)', border: '1px solid #2e7d32',
+            maxWidth: '400px', width: '90%', color: '#fff'
+          }}>
+            <h3 style={{ marginTop: 0, color: '#2e7d32', fontSize: '1.2rem' }}>
+              {renameModal.type === 'base' ? 'Rename settlement' : 'Rename citizen'}
+            </h3>
+            
+            <input 
+              type="text" 
+              value={renameModal.newName}
+              onChange={(e) => setRenameModal({ ...renameModal, newName: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSaveName();
+                if (e.key === 'Escape') setRenameModal({ isOpen: false, type: null, id: null, oldName: '', newName: '' });
+              }}
+              autoFocus
+              style={{
+                width: '100%', padding: '10px', marginTop: '10px', marginBottom: '20px',
+                borderRadius: '4px', border: '1px solid #555', backgroundColor: '#333',
+                color: '#fff', fontSize: '1rem', boxSizing: 'border-box'
+              }}
+            />
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button 
+                onClick={() => setRenameModal({ isOpen: false, type: null, id: null, oldName: '', newName: '' })}
+                style={{
+                  padding: '8px 16px', borderRadius: '4px', border: 'none',
+                  backgroundColor: '#555', color: '#fff', cursor: 'pointer', fontWeight: 'bold'
+                }}
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleSaveName}
+                style={{
+                  padding: '8px 16px', borderRadius: '4px', border: 'none',
+                  backgroundColor: '#2e7d32', color: '#fff', cursor: 'pointer', fontWeight: 'bold'
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
