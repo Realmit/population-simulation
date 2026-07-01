@@ -1,4 +1,4 @@
-# [🌍 Симуляция Доисторической Цивилизации](https://rus.ktonehey.ru/) <-- Нажми на меня! (сайт)
+# [🌍 Симуляция Доисторической Цивилизации](https://Realmit.github.io/population-simulation/) <-- Нажми на меня! (сайт)
 
 [**English**](README.md) | [**Русский**](READMERU.md)
 
