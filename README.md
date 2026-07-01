@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/github/license/Realmit/population-simulation)
 ![Repo Size](https://img.shields.io/github/repo-size/Realmit/population-simulation)
 ![Last Commit](https://img.shields.io/github/last-commit/Realmit/population-simulation)
-
+ 
 [**English**](README.md) | [**Русский**](READMERU.md)
 
 ---
